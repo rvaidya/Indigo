@@ -20,7 +20,6 @@
 
 #include "base_c/defs.h"
 #include "base_cpp/output.h"
-#include "layout/molecule_layout.h"
 #include "molecule/elements.h"
 #include "molecule/molecule_arom.h"
 #include "molecule/molecule_dearom.h"
@@ -732,9 +731,11 @@ void Molecule::unfoldHydrogens(Array<int>* markers_out, int max_h_cnt, bool impl
             imp_h_count[i] = getImplicitH(i);
     }
 
-    Array<int> markers;
-    markers.clear_resize(vertexEnd());
-    markers.zerofill();
+    if (markers_out != nullptr)
+    {
+        markers_out->clear_resize(vertexEnd());
+        markers_out->zerofill();
+    }
 
     for (int i = vertexBegin(); i < v_end; i = vertexNext(i))
     {
@@ -818,8 +819,11 @@ void Molecule::unfoldHydrogens(Array<int>* markers_out, int max_h_cnt, bool impl
             // */
 
             addBond(i, new_h_idx, BOND_SINGLE);
-            markers_out->expandFill(new_h_idx + 1, 0);
-            markers_out->at(new_h_idx) = 1;
+            if (markers_out != nullptr)
+            {
+                markers_out->expandFill(new_h_idx + 1, 0);
+                markers_out->at(new_h_idx) = 1;
+            }
 
             stereocenters.registerUnfoldedHydrogen(i, new_h_idx);
             cis_trans.registerUnfoldedHydrogen(*this, i, new_h_idx);
@@ -829,26 +833,6 @@ void Molecule::unfoldHydrogens(Array<int>* markers_out, int max_h_cnt, bool impl
 
         _validateVertexConnectivity(i, false);
         _implicit_h[i] = impl_h - h_cnt;
-    }
-    // Layout hydrogens
-    MoleculeLayoutGraphSimple layout;
-    layout.makeOnGraph(*this);
-    for (int i = layout.vertexBegin(); i < layout.vertexEnd(); i = layout.vertexNext(i))
-    {
-        const Vec3f& pos = this->getAtomXyz(layout.getVertexExtIdx(i));
-
-        layout.getPos(i).set(pos.x, pos.y);
-    }
-    Filter new_filter(markers.ptr(), Filter::EQ, 1);
-    layout.layout(*this, 1, &new_filter, true);
-    for (int i = layout.vertexBegin(); i < layout.vertexEnd(); i = layout.vertexNext(i))
-    {
-        const LayoutVertex& vert = layout.getLayoutVertex(i);
-        this->setAtomXyz(vert.ext_idx, vert.pos.x, vert.pos.y, 0.f);
-    }
-    if (markers_out != nullptr)
-    {
-        markers_out->copy(markers);
     }
 
     updateEditRevision();

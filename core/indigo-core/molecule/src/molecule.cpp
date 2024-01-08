@@ -20,6 +20,7 @@
 
 #include "base_c/defs.h"
 #include "base_cpp/output.h"
+#include "layout/molecule_layout.h"
 #include "molecule/elements.h"
 #include "molecule/molecule_arom.h"
 #include "molecule/molecule_dearom.h"
@@ -731,11 +732,9 @@ void Molecule::unfoldHydrogens(Array<int>* markers_out, int max_h_cnt, bool impl
             imp_h_count[i] = getImplicitH(i);
     }
 
-    if (markers_out != 0)
-    {
-        markers_out->clear_resize(vertexEnd());
-        markers_out->zerofill();
-    }
+    Array<int> markers;
+    markers.clear_resize(vertexEnd());
+    markers.zerofill();
 
     for (int i = vertexBegin(); i < v_end; i = vertexNext(i))
     {
@@ -749,16 +748,78 @@ void Molecule::unfoldHydrogens(Array<int>* markers_out, int max_h_cnt, bool impl
         else
             h_cnt = max_h_cnt;
 
+        /*/ Calculate angles between atom bonds
+        Vec3f& atom = getAtomXyz(i);
+        Vec2f hor{1.0f, 0};
+        Vec2f zero{0.0f, 0.0f};
+        const Vertex& v = getVertex(i);
+        std::list<float> angles;
+        float total_len = 0; // total len of bonds to neighbours
+        for (int n = v.neiBegin(); n != v.neiEnd(); n = v.neiNext(n))
+        {
+            Vec3f& neigh = getAtomXyz(v.neiVertex(n));
+            Vec2f neigh_vec{neigh.x - atom.x, neigh.y - atom.y};
+            float vlen = neigh_vec.dist(zero, neigh_vec);
+            if (vlen > EPSILON)
+            {
+                total_len += vlen;
+                angles.emplace_back(zero.calc_angle_pos(hor, neigh_vec));
+            }
+            else
+            {
+                total_len += 1;
+                angles.emplace_back(0);
+            }
+        }
+        angles.sort();
+        float average_len = 1;
+        float angle_parts_count = h_cnt;
+        if (v.degree() > 0)
+        {
+            average_len = total_len / v.degree();
+            angle_parts_count += 1.0f;
+        }
+        // Find start and max angles
+        float max_angle = 0.0f;
+        float start_angle = 0.0f;
+        if (angles.size() == 0)
+        {
+            max_angle = 2.0 * M_PI;
+        }
+        else
+        {
+            float prev_angle = *angles.rbegin() - 2 * M_PI;
+            start_angle = prev_angle;
+            for (auto angle : angles)
+            {
+                float diff = angle - prev_angle;
+                if (diff > max_angle)
+                {
+                    start_angle = prev_angle;
+                    max_angle = diff;
+                }
+                prev_angle = angle;
+            }
+        }
+        // */
+
         for (int j = 0; j < h_cnt; j++)
         {
             int new_h_idx = addAtom(ELEM_H);
 
+            /*/ divide max angle to h_cnt+1 parts by h_cnt new bonds
+            Vec2f new_vec;
+            new_vec.copy(hor);
+            new_vec.scale(average_len);
+            new_vec.rotate(start_angle + max_angle * (j + 1.0f) / angle_parts_count);
+            Vec3f new_point{new_vec.x, new_vec.y, 0};
+            new_point.add(atom);
+            setAtomXyz(new_h_idx, new_point);
+            // */
+
             addBond(i, new_h_idx, BOND_SINGLE);
-            if (markers_out != 0)
-            {
-                markers_out->expandFill(new_h_idx + 1, 0);
-                markers_out->at(new_h_idx) = 1;
-            }
+            markers_out->expandFill(new_h_idx + 1, 0);
+            markers_out->at(new_h_idx) = 1;
 
             stereocenters.registerUnfoldedHydrogen(i, new_h_idx);
             cis_trans.registerUnfoldedHydrogen(*this, i, new_h_idx);
@@ -768,6 +829,26 @@ void Molecule::unfoldHydrogens(Array<int>* markers_out, int max_h_cnt, bool impl
 
         _validateVertexConnectivity(i, false);
         _implicit_h[i] = impl_h - h_cnt;
+    }
+    // Layout hydrogens
+    MoleculeLayoutGraphSimple layout;
+    layout.makeOnGraph(*this);
+    for (int i = layout.vertexBegin(); i < layout.vertexEnd(); i = layout.vertexNext(i))
+    {
+        const Vec3f& pos = this->getAtomXyz(layout.getVertexExtIdx(i));
+
+        layout.getPos(i).set(pos.x, pos.y);
+    }
+    Filter new_filter(markers.ptr(), Filter::EQ, 1);
+    layout.layout(*this, 1, &new_filter, true);
+    for (int i = layout.vertexBegin(); i < layout.vertexEnd(); i = layout.vertexNext(i))
+    {
+        const LayoutVertex& vert = layout.getLayoutVertex(i);
+        this->setAtomXyz(vert.ext_idx, vert.pos.x, vert.pos.y, 0.f);
+    }
+    if (markers_out != nullptr)
+    {
+        markers_out->copy(markers);
     }
 
     updateEditRevision();

@@ -127,7 +127,11 @@ int BingoPgBuffer::writeNewBuffer(PG_OBJECT rel_ptr, unsigned int block_num)
         BINGO_PG_HANDLE(throw Error("internal error: can not create a new buffer %s", message));
 
         if (buffer_block_num != block_num)
+        {
+            ReleaseBuffer(_buffer);
+            _buffer = InvalidBuffer;
             throw Error("internal error: unexpected relation size: %u, should be %u", buffer_block_num, block_num);
+        }
     }
     else
     {
@@ -172,7 +176,13 @@ int BingoPgBuffer::writeNewBuffer(PG_OBJECT rel_ptr, unsigned int block_num)
     {
         PageInit(page, BufferGetPageSize(_buffer), 0);
     }
-    BINGO_PG_HANDLE(throw Error("internal error: can not initialize the page %d: %s", _buffer, message));
+    BINGO_PG_HANDLE({
+        UnlockReleaseBuffer(_buffer);
+        _buffer = InvalidBuffer;
+        _lock = BINGO_PG_NOLOCK;
+        _blockIdx = 0;
+        throw Error("internal error: can not initialize the page: %s", message);
+    });
 
     return _buffer;
 }
@@ -270,37 +280,36 @@ int BingoPgBuffer::_getAccess(int lock)
 
 void* BingoPgBuffer::getIndexData(int& data_len)
 {
-    char* data_ptr = 0;
+    Page page = 0;
     BINGO_PG_TRY
     {
-        Page page = BufferGetPage(getBuffer());
-
-        if (PageIsNew(page))
-            throw Error("internal error: uninitialized bingo index block %d", _blockIdx);
-
-        OffsetNumber max_offset = PageGetMaxOffsetNumber(page);
-        if (max_offset < BINGO_TUPLE_OFFSET)
-            throw Error("internal error: bingo index block %d has no index tuple", _blockIdx);
-
-        ItemId item_id = PageGetItemId(page, BINGO_TUPLE_OFFSET);
-        if (!ItemIdIsNormal(item_id))
-            throw Error("internal error: bingo index block %d has an invalid index tuple", _blockIdx);
-
-        IndexTuple itup = (IndexTuple)PageGetItem(page, item_id);
-        int hoff = IndexInfoFindDataOffset(itup->t_info);
-        int tuple_size = IndexTupleSize(itup);
-
-        if (tuple_size < hoff)
-            throw Error("internal error: corrupted block %d data len is %d", _blockIdx, tuple_size - hoff);
-
-        data_ptr = (char*)itup + hoff;
-        data_len = tuple_size - hoff;
+        page = BufferGetPage(getBuffer());
     }
-    BINGO_PG_HANDLE(throw Error("internal error: can not get index data from the block %d: %s", _blockIdx, message));
+    BINGO_PG_HANDLE(throw Error("internal error: can not get index page from the block %d: %s", _blockIdx, message));
 
+    if (PageIsNew(page))
+        throw Error("internal error: uninitialized bingo index block %d", _blockIdx);
+
+    OffsetNumber max_offset = PageGetMaxOffsetNumber(page);
+    if (max_offset < BINGO_TUPLE_OFFSET)
+        throw Error("internal error: bingo index block %d has no index tuple", _blockIdx);
+
+    ItemId item_id = PageGetItemId(page, BINGO_TUPLE_OFFSET);
+    if (!ItemIdIsNormal(item_id))
+        throw Error("internal error: bingo index block %d has an invalid index tuple", _blockIdx);
+
+    IndexTuple itup = (IndexTuple)PageGetItem(page, item_id);
+    int hoff = IndexInfoFindDataOffset(itup->t_info);
+    int tuple_size = IndexTupleSize(itup);
+
+    if (tuple_size < hoff)
+        throw Error("internal error: corrupted block %d data len is %d", _blockIdx, tuple_size - hoff);
+
+    char* data_ptr = (char*)itup + hoff;
     if (data_ptr == 0)
         throw Error("internal error: empty ptr data for the block %d", _blockIdx);
 
+    data_len = tuple_size - hoff;
     return data_ptr;
 }
 

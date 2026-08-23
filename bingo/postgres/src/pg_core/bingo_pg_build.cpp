@@ -51,20 +51,52 @@ BingoPgBuild::BingoPgBuild(PG_OBJECT index_ptr, const char* schema_name, const c
 
 BingoPgBuild::~BingoPgBuild()
 {
+}
+
+void BingoPgBuild::finish()
+{
+    if (!_buildingState)
+        return;
+
     /*
-     * Finish building stage
+     * Process the final parallel batch before releasing the section caches.
      */
-    if (_buildingState)
+    flush();
+
+    /*
+     * BingoPgSection writes its binary caches from member destructors. Release
+     * the current section explicitly so those pages are complete before the
+     * build publishes dictionary/meta state or logs the relation for WAL.
+     */
+    int final_section_offset = 0;
+    int final_section_pages = 0;
+    _bufferIndex.finishCurrentSection(final_section_offset, final_section_pages);
+    _validateBuiltSection(final_section_offset, final_section_pages);
+
+    /*
+     * Publish global build state only after the physical section is complete.
+     */
+    _bufferIndex.writeDictionary(*fp_engine);
+    _bufferIndex.writeMetaInfo();
+    fp_engine->finishShadowProcessing();
+
+    _buildingState = false;
+}
+
+void BingoPgBuild::_validateBuiltSection(int section_offset, int section_pages)
+{
+    if (section_offset < 0 || section_pages <= 0)
+        throw Error("internal error: invalid final bingo section range offset=%d pages=%d", section_offset, section_pages);
+
+    for (int page_idx = 0; page_idx < section_pages; ++page_idx)
     {
-        fp_engine->finishShadowProcessing();
-        /*
-         * Write dictionary and meta info after the bulk build is complete.
-         * Incremental writes persist this state before publishing structures.
-         */
-        _bufferIndex.writeDictionary(*fp_engine);
-        _bufferIndex.writeMetaInfo();
+        const unsigned int block_idx = (unsigned int)(section_offset + page_idx);
+        BingoPgBuffer buffer(_index, block_idx, BINGO_PG_READ);
+        int data_len = 0;
+        buffer.getIndexData(data_len);
     }
 }
+
 /*
  * Inserts a new structure into the index
  * Returns true if insertion was successfull

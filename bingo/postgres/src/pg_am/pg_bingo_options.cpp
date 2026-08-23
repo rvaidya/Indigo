@@ -349,6 +349,52 @@ relopt_value* bingoParseRelOptions(Datum options, bool validate, int kind, int* 
     return reloptions;
 }
 
+#if PG_VERSION_NUM / 100 > 1200
+/*
+ * Since PostgreSQL 13 the AM option parser (build_reloptions) matches input
+ * options against options registered with the core reloptions registry only.
+ * The legacy self-contained tables above are not visible to it, so every
+ * Bingo WITH (...) option would be rejected with "unrecognized parameter".
+ * Register the same option names under RELOPT_KIND_BINGO once per library
+ * load. Types must match the tab[] entries below (all INT), including the
+ * boolean-like flags whose accepted values stay 0/1.
+ */
+extern "C" void _PG_init(void);
+
+void _PG_init(void)
+{
+    const relopt_kind bingo_kind = static_cast<relopt_kind>(RELOPT_KIND_BINGO);
+    static const struct
+    {
+        const char* name;
+        int min_val;
+        int max_val;
+    } bingo_int_options[] = {{"treat_x_as_pseudoatom", 0, 1},
+                             {"ignore_closing_bond_direction_mismatch", 0, 1},
+                             {"ignore_stereocenter_errors", 0, 1},
+                             {"stereochemistry_bidirectional_mode", 0, 1},
+                             {"stereochemistry_detect_haworth_projection", 0, 1},
+                             {"ignore_cistrans_errors", 0, 1},
+                             {"allow_non_unique_dearomatization", 0, 1},
+                             {"zero_unknown_aromatic_hydrogens", 0, 1},
+                             {"reject_invalid_structures", 0, 1},
+                             {"ignore_bad_valence", 0, 1},
+                             {"fp_ord_size", 0, 2000000000},
+                             {"fp_any_size", 0, 2000000000},
+                             {"fp_tau_size", 0, 2000000000},
+                             {"fp_sim_size", 0, 2000000000},
+                             {"sub_screening_max_bits", 0, 2000000000},
+                             {"sim_screening_pass_mark", 0, 2000000000},
+                             /* -1 keeps its historical "automatic" meaning */
+                             {"nthreads", -1, 2000000000}};
+
+    for (size_t i = 0; i < lengthof(bingo_int_options); ++i)
+    {
+        add_int_reloption(bingo_kind, bingo_int_options[i].name, "", -1, bingo_int_options[i].min_val, bingo_int_options[i].max_val, AccessExclusiveLock);
+    }
+}
+#endif
+
 bytea* bingo_reloptions(Datum reloptions, bool validate)
 {
     relopt_value* options;

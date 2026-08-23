@@ -495,7 +495,7 @@ void BingoPgBuffer::formIndexTuple(void* map_data, int size)
     }
     BINGO_PG_HANDLE({
         _abortWrite();
-        throw Error("internal error: can not form index tuple: %s", message));
+        throw Error("internal error: can not form index tuple: %s", message);
     });
 
     if (add_failed)

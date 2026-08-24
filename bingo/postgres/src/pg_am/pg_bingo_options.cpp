@@ -97,7 +97,7 @@ static relopt_real realRelOpts[] = {
      -1,
      0.0,
      100.0},
-    {{"autovacuum_analyze_scale_factor", "Minimum number of tuple inserts, updates or deletes prior to analyze", RELOPT_KIND_HEAP},
+    {{"autovacuum_analyze_scale_factor", "Number of tuple inserts, updates or deletes prior to analyze as a fraction of reltuples", RELOPT_KIND_HEAP},
      -1,
      0.0,
      100.0},

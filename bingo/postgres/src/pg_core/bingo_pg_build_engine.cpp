@@ -48,6 +48,7 @@ void BingoPgBuildEngine::setUpConfiguration(BingoPgConfig& bingo_config)
 void BingoPgBuildEngine::loadDictionary(BingoPgIndex& bingo_index)
 {
     // _setBingoContext();
+
     QS_DEF(Array<char>, dict);
     bingo_index.readDictionary(dict);
     bingoCore.bingoSetConfigBin("cmf_dict", dict.ptr(), dict.sizeInBytes());
@@ -56,8 +57,11 @@ void BingoPgBuildEngine::loadDictionary(BingoPgIndex& bingo_index)
 const char* BingoPgBuildEngine::getDictionary(int& size)
 {
     // _setBingoContext();
+
     const char* dict_buf;
+
     bingoCore.bingoGetConfigBin("cmf-dict", &dict_buf, &size);
+
     return dict_buf;
 }
 
@@ -65,6 +69,7 @@ int BingoPgBuildEngine::getNthreads()
 {
     // TO DISABLE THREADS UNCOMMENT THIS
     //   return 1;
+
     if (!nThreads.has_value())
     {
         // _setBingoContext();
@@ -72,18 +77,21 @@ int BingoPgBuildEngine::getNthreads()
         bingoCore.bingoGetConfigInt("nthreads", &result);
         nThreads.set(result);
     }
+
     return nThreads.value();
 }
 
 int BingoPgBuildEngine::_getNextRecordCb(void* context)
 {
     BingoPgBuildEngine* engine = (BingoPgBuildEngine*)context;
+
     int& cache_idx = engine->_currentCache;
     PtrArray<StructCache>& struct_caches = *(engine->_structCaches);
     if (cache_idx >= struct_caches.size())
         return 0;
 
     StructCache& struct_cache = struct_caches[cache_idx];
+
     int struct_size;
     const char* struct_ptr = struct_cache.text->getText(struct_size);
 

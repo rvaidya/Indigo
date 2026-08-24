@@ -428,7 +428,7 @@ void BingoPgBuffer::clear()
 
 int BingoPgBuffer::_getAccess(int lock)
 {
-    switch (_lock)
+    switch (lock)
     {
     case BINGO_PG_WRITE:
         return BUFFER_LOCK_EXCLUSIVE;

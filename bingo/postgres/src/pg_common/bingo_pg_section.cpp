@@ -171,15 +171,6 @@ BingoPgSection::BingoPgSection(BingoPgIndex& bingo_idx, int idx_strategy, int of
 
 BingoPgSection::~BingoPgSection()
 {
-    /*
-     * Write meta info
-     */
-    if (_idxStrategy != BingoPgIndex::READING_STRATEGY)
-    {
-        _sectionInfo.n_blocks_for_bin = _buffersBin.size();
-        _sectionInfo.section_size = getPagesCount();
-        _flushSectionInfo();
-    }
 }
 
 void BingoPgSection::clear()
@@ -200,6 +191,39 @@ void BingoPgSection::clear()
     _offsetBin.clear();
     _offsetFp.clear();
     _offsetMap.clear();
+}
+
+void BingoPgSection::finish()
+{
+    if (_idxStrategy == BingoPgIndex::READING_STRATEGY)
+        return;
+
+    _sectionInfo.n_blocks_for_bin = _buffersBin.size();
+    _sectionInfo.section_size = getPagesCount();
+
+    for (int i = 0; i < _buffersBin.size(); ++i)
+    {
+        BingoPgBufferCacheBin* cache = _buffersBin.getPtr(i);
+        if (cache != 0)
+            cache->flush();
+    }
+    for (int i = 0; i < _buffersMap.size(); ++i)
+    {
+        BingoPgBufferCacheMap* cache = _buffersMap.getPtr(i);
+        if (cache != 0)
+            cache->flush();
+    }
+    for (int i = 0; i < _buffersFp.size(); ++i)
+    {
+        BingoPgBufferCacheFp* cache = _buffersFp.getPtr(i);
+        if (cache != 0)
+            cache->flush();
+    }
+
+    _flushSectionInfo();
+
+    if (_existStructures.get() != 0)
+        _existStructures->flush();
 }
 
 void BingoPgSection::_flushSectionInfo()

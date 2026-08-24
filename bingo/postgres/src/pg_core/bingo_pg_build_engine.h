@@ -85,6 +85,8 @@ public:
     int getNthreads();
     indigo::bingo_core::BingoCore bingoCore;
 
+    DECL_ERROR;
+
 private:
     BingoPgBuildEngine(const BingoPgBuildEngine&); // no implicit copy
 protected:

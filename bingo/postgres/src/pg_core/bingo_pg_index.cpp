@@ -273,6 +273,7 @@ void BingoPgIndex::_initializeNewSection()
 {
     if (_currentSection.get() != 0)
     {
+        _currentSection->finish();
         _metaInfo.n_pages += _currentSection->getPagesCount();
         _currentSection.reset(nullptr);
     }
@@ -437,7 +438,6 @@ void BingoPgIndex::insertStructure(BingoPgFpData& data_item)
     //
     //    BingoPgWrapper rel_wr;
     //    const char* rel_name = rel_wr.getRelName(index->rd_id);
-    //
     //    indigo::FileOutput fout(false, "%s/insert/%s_%d_%d_%d", BINGO_PG_INTEGRITY_DIR, rel_name, _currentSectionIdx, );
     // #endif
     /*
@@ -506,7 +506,7 @@ void BingoPgIndex::andWithBitset(int section_idx, int fp_idx, BingoPgExternalBit
     BingoPgSection& current_section = _jumpToSection(section_idx);
     BingoPgBufferCacheFp& fp_buffer = current_section.getFpBufferCache(fp_idx);
     /*
-     * And with a bitset
+     * And with bitset
      */
     fp_buffer.andWithBitset(ext_bitset);
 }

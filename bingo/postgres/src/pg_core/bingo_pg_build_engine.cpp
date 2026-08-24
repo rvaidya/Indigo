@@ -20,6 +20,8 @@ extern "C"
 
 using namespace indigo;
 
+IMPL_ERROR(BingoPgBuildEngine, "build engine");
+
 BingoPgBuildEngine::BingoPgBuildEngine() : _bufferIndexPtr(0)
 {
     _bingoContext = std::make_unique<BingoContext>(0);

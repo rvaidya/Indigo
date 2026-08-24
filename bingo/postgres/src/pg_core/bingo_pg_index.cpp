@@ -143,7 +143,7 @@ void BingoPgIndex::readMetaInfo()
         throw Error("internal error: invalid bingo molecule count %d for %d sections", _metaInfo.n_molecules, _metaInfo.n_sections);
     if (_metaInfo.n_blocks_for_map <= 0 || _metaInfo.n_blocks_for_map > (int)relation_blocks)
         throw Error("internal error: invalid bingo map block count %d", _metaInfo.n_blocks_for_map);
-    if (_metaInfo.n_blocks_for_fp <= 0 || _metaInfo.n_blocks_for_fp > (int)relation_blocks)
+    if (_metaInfo.n_blocks_for_fp < 0 || _metaInfo.n_blocks_for_fp > (int)relation_blocks)
         throw Error("internal error: invalid bingo fingerprint block count %d", _metaInfo.n_blocks_for_fp);
     if (_metaInfo.n_blocks_for_dictionary < 0 || _metaInfo.n_blocks_for_dictionary > BINGO_DICTIONARY_BLOCKS_NUM)
         throw Error("internal error: invalid bingo dictionary block count %d", _metaInfo.n_blocks_for_dictionary);
@@ -433,7 +433,10 @@ int BingoPgIndex::_getSectionOffset(int section_idx)
     off_buffer.changeAccess(BINGO_PG_READ);
     int* section_offsets = (int*)off_buffer.getIndexData(data_len);
     if (data_len < (section_off_idx + 1) * (int)sizeof(int))
+    {
+        off_buffer.changeAccess(BINGO_PG_NOLOCK);
         throw Error("internal error: bingo section offset block is too small for section %d", section_idx);
+    }
     result = section_offsets[section_off_idx];
     off_buffer.changeAccess(BINGO_PG_NOLOCK);
 

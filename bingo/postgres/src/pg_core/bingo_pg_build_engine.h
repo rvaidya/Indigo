@@ -33,7 +33,7 @@ public:
     class StructCache
     {
     public:
-        StructCache()
+        StructCache() : rejected(false)
         {
         }
         ~StructCache()
@@ -42,6 +42,7 @@ public:
         ItemPointerData ptr;
         std::unique_ptr<BingoPgText> text;
         std::unique_ptr<BingoPgFpData> data;
+        bool rejected;
 
     private:
         StructCache(const StructCache&); // no implicit copy

@@ -58,10 +58,9 @@ public:
     void writeMetaInfo();
 
     /*
-     * Release the final build section so all of its page caches are flushed
-     * before build metadata and WAL publication. Returns the physical range
-     * that was released so the caller can validate it before declaring the
-     * build complete.
+     * Finalize and release the current section before build metadata and WAL
+     * publication. Returns the physical range that was released so the caller
+     * can validate it before declaring the build complete.
      */
     void finishCurrentSection(int& section_offset, int& section_pages)
     {
@@ -69,6 +68,7 @@ public:
             throw Error("internal error: no current bingo section to finish");
 
         section_offset = _getSectionOffset(_currentSectionIdx);
+        _currentSection->finish();
         section_pages = _currentSection->getPagesCount();
         _currentSection.reset(nullptr);
         _currentSectionIdx = -1;

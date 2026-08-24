@@ -48,7 +48,6 @@ void BingoPgBuildEngine::setUpConfiguration(BingoPgConfig& bingo_config)
 void BingoPgBuildEngine::loadDictionary(BingoPgIndex& bingo_index)
 {
     // _setBingoContext();
-
     QS_DEF(Array<char>, dict);
     bingo_index.readDictionary(dict);
     bingoCore.bingoSetConfigBin("cmf_dict", dict.ptr(), dict.sizeInBytes());
@@ -57,11 +56,8 @@ void BingoPgBuildEngine::loadDictionary(BingoPgIndex& bingo_index)
 const char* BingoPgBuildEngine::getDictionary(int& size)
 {
     // _setBingoContext();
-
     const char* dict_buf;
-
     bingoCore.bingoGetConfigBin("cmf-dict", &dict_buf, &size);
-
     return dict_buf;
 }
 
@@ -69,7 +65,6 @@ int BingoPgBuildEngine::getNthreads()
 {
     // TO DISABLE THREADS UNCOMMENT THIS
     //   return 1;
-
     if (!nThreads.has_value())
     {
         // _setBingoContext();
@@ -77,21 +72,18 @@ int BingoPgBuildEngine::getNthreads()
         bingoCore.bingoGetConfigInt("nthreads", &result);
         nThreads.set(result);
     }
-
     return nThreads.value();
 }
 
 int BingoPgBuildEngine::_getNextRecordCb(void* context)
 {
     BingoPgBuildEngine* engine = (BingoPgBuildEngine*)context;
-
     int& cache_idx = engine->_currentCache;
     PtrArray<StructCache>& struct_caches = *(engine->_structCaches);
     if (cache_idx >= struct_caches.size())
         return 0;
 
     StructCache& struct_cache = struct_caches[cache_idx];
-
     int struct_size;
     const char* struct_ptr = struct_cache.text->getText(struct_size);
 
@@ -107,7 +99,15 @@ void BingoPgBuildEngine::_processErrorCb(int id, void* context)
 {
     BingoPgBuildEngine* engine = (BingoPgBuildEngine*)context;
     PtrArray<StructCache>& struct_caches = *(engine->_structCaches);
-    ItemPointer item_ptr = &(struct_caches[id].ptr);
+    if (id < 0 || id >= struct_caches.size())
+        throw Error("internal error: parallel bingo build returned invalid rejected record id %d", id);
+
+    StructCache& struct_cache = struct_caches[id];
+    if (struct_cache.data.get() != 0)
+        throw Error("internal error: parallel bingo build returned record %d as both prepared and rejected", id);
+    struct_cache.rejected = true;
+
+    ItemPointer item_ptr = &(struct_cache.ptr);
     int block_number = ItemPointerGetBlockNumber(item_ptr);
     int offset_number = ItemPointerGetOffsetNumber(item_ptr);
     elog(WARNING, "build engine: error while processing record with ctid='(%d,%d)'::tid: %s", block_number, offset_number, engine->bingoCore.warning.ptr());

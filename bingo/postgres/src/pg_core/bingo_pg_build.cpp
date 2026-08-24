@@ -64,13 +64,21 @@ void BingoPgBuild::finish()
     flush();
 
     /*
-     * BingoPgSection writes its binary caches from member destructors. Release
-     * the current section explicitly so those pages are complete before the
-     * build publishes dictionary/meta state or logs the relation for WAL.
+     * Explicitly finalize and release the current section so all page caches
+     * are complete before the build publishes dictionary/meta state or logs
+     * the relation for WAL.
      */
     int final_section_offset = 0;
     int final_section_pages = 0;
     _bufferIndex.finishCurrentSection(final_section_offset, final_section_pages);
+
+    Relation index = (Relation)_index;
+    const BlockNumber physical_pages = RelationGetNumberOfBlocks(index);
+    const BlockNumber expected_pages = (BlockNumber)(final_section_offset + final_section_pages);
+    if (physical_pages != expected_pages)
+        throw Error("internal error: bingo index physical size %u does not match final logical end %u", (unsigned int)physical_pages,
+                    (unsigned int)expected_pages);
+
     _validateBuiltSection(final_section_offset, final_section_pages);
 
     /*

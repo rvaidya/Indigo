@@ -224,7 +224,7 @@ bool BingoPgBuild::insertStructureSingle(PG_OBJECT item_ptr, uintptr_t text_ptr)
     }
 
     if (struct_cache.data.get() == 0)
-        return false;
+        throw Error("internal error: bingo build reported success without prepared data for ctid='(%d,%d)'::tid", block_number, offset_number);
 
     /*
      * The encoded CMF can depend on dictionary state changed while processing
@@ -283,10 +283,18 @@ void BingoPgBuild::flush()
     {
         // profTimerStart(t1, "bingo_pg.insert_idx");
         BingoPgBuildEngine::StructCache& struct_cache = _parrallelCache[c_idx];
+        ItemPointer item_ptr = &struct_cache.ptr;
+        int block_number = ItemPointerGetBlockNumber(item_ptr);
+        int offset_number = ItemPointerGetOffsetNumber(item_ptr);
+
         if (struct_cache.data.get() == 0)
         {
-            continue;
+            if (struct_cache.rejected)
+                continue;
+            throw Error("internal error: parallel bingo build did not resolve ctid='(%d,%d)'::tid as prepared or rejected", block_number, offset_number);
         }
+        if (struct_cache.rejected)
+            throw Error("internal error: parallel bingo build resolved ctid='(%d,%d)'::tid as both prepared and rejected", block_number, offset_number);
 
         BingoPgFpData& data_ref = *struct_cache.data;
         _bufferIndex.insertStructure(data_ref);

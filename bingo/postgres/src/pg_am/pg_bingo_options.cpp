@@ -86,7 +86,7 @@ static relopt_int intRelOpts[] = {
     {{"fp_sim_size", "", RELOPT_KIND_BINGO_LEGACY}, -1, 0, 2000000000},
     {{"sub_screening_max_bits", "", RELOPT_KIND_BINGO_LEGACY}, -1, 0, 2000000000},
     {{"sim_screening_pass_mark", "", RELOPT_KIND_BINGO_LEGACY}, -1, 0, 2000000000},
-    {{"nthreads", "", RELOPT_KIND_BINGO_LEGACY}, -1, -1, 2000000000},
+    {{"nthreads", "", RELOPT_KIND_BINGO_LEGACY}, -2, -1, 2000000000},
     /* list terminator */
     {{NULL}}
 
@@ -97,7 +97,7 @@ static relopt_real realRelOpts[] = {
      -1,
      0.0,
      100.0},
-    {{"autovacuum_analyze_scale_factor", "Number of tuple inserts, updates or deletes prior to analyze as a fraction of reltuples", RELOPT_KIND_HEAP},
+    {{"autovacuum_analyze_scale_factor", "Minimum number of tuple inserts, updates or deletes prior to analyze", RELOPT_KIND_HEAP},
      -1,
      0.0,
      100.0},
@@ -394,15 +394,16 @@ void _PG_init(void)
                              {"fp_tau_size", 0, 2000000000},
                              {"fp_sim_size", 0, 2000000000},
                              {"sub_screening_max_bits", 0, 2000000000},
-                             {"sim_screening_pass_mark", 0, 2000000000},
-                             /* -1 keeps its historical "automatic" meaning */
-                             {"nthreads", -1, 2000000000}};
+                             {"sim_screening_pass_mark", 0, 2000000000}};
 
     for (size_t i = 0; i < lengthof(bingo_int_options); ++i)
     {
         add_int_reloption(bingo_relopt_kind, bingo_int_options[i].name, "", -1, bingo_int_options[i].min_val, bingo_int_options[i].max_val,
                           AccessExclusiveLock);
     }
+
+    /* -2 means the index option is unset; -1 keeps its historical automatic meaning. */
+    add_int_reloption(bingo_relopt_kind, "nthreads", "", -2, -1, 2000000000, AccessExclusiveLock);
 }
 #endif
 

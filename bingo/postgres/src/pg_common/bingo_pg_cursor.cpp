@@ -103,10 +103,10 @@ void BingoPgCursor::getId(int arg_idx, ItemPointerData& data)
         ItemPointer tup = (ItemPointer)DatumGetPointer(record);
 
         int block_num = ItemPointerGetBlockNumber(tup);
-        int offset_number = ItemPointerGetOffsetNumber(tup);
+        int off_num = ItemPointerGetOffsetNumber(tup);
 
         ItemPointerSetBlockNumber(&data, block_num);
-        ItemPointerSetOffsetNumber(&data, offset_number);
+        ItemPointerSetOffsetNumber(&data, off_num);
     }
     BINGO_PG_HANDLE(throw Error("internal error: can not get the id from the data: %s", message));
 }

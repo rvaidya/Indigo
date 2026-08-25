@@ -11,7 +11,7 @@ clang-format -i \
 if ! git diff --quiet -- \
   bingo/postgres/src/pg_am/pg_bingo_build.cpp \
   bingo/postgres/src/pg_am/pg_bingo_update.cpp
-do
+then
   git config user.name "Bingo clang-format diagnostic"
   git config user.email "noreply@github.com"
   git add \

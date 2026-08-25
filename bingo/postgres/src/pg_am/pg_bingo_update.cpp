@@ -50,6 +50,79 @@ static void bingoUnlockIndexMutation(Relation index)
     UnlockRelationForExtension(index, ExclusiveLock);
 }
 
+static bool bingoInsertStructureLocked(Relation index, ItemPointer ht_ctid, Datum value)
+{
+    bool result = false;
+
+    PG_BINGO_BEGIN
+    {
+        BingoPgWrapper rel_namespace;
+        const char* index_schema = rel_namespace.getRelNameSpace(index->rd_id);
+
+        BingoPgBuild build_engine(index, 0, index_schema, false);
+        /*
+         * Insert a new structure
+         */
+        result = build_engine.insertStructureSingle(ht_ctid, value);
+    }
+    PG_BINGO_END
+
+    return result;
+}
+
+static void bingoBulkDeleteLocked(Relation index_rel, IndexBulkDeleteCallback bulk_del_cb, void* cb_state)
+{
+    PG_BINGO_BEGIN
+    {
+        /*
+         * Initialize local variables
+         */
+        double tuples_removed = 0;
+        ItemPointerData item_data;
+        ItemPointer item_ptr = &item_data;
+        BingoPgExternalBitset section_bitset(BINGO_MOLS_PER_SECTION);
+
+        /*
+         * Create index manager. VACUUM mutates the section existence
+         * bitsets and metapage count, so use the WAL-enabled update path.
+         */
+        BingoPgIndex bingo_index(index_rel);
+        bingo_index.updateBegin();
+
+        /*
+         * Iterate through all the sections and search for removed tuples
+         */
+        for (int section_idx = 0; section_idx != bingo_index.readEnd(); section_idx = bingo_index.readNext(section_idx))
+        {
+            bingo_index.getSectionBitset(section_idx, section_bitset);
+            /*
+             * Iterate through section structures
+             */
+            for (int mol_idx = section_bitset.begin(); mol_idx != section_bitset.end(); mol_idx = section_bitset.next(mol_idx))
+            {
+                bingo_index.readTidItem(section_idx, mol_idx, item_ptr);
+                if (bulk_del_cb(item_ptr, cb_state))
+                {
+                    /*
+                     * Remove the structure from the bingo index
+                     */
+                    bingo_index.removeStructure(section_idx, mol_idx);
+                    tuples_removed += 1;
+                }
+            }
+        }
+        /*
+         * Always return null since no index values are removed
+         */
+        //      if (stats == NULL)
+        //         stats = (IndexBulkDeleteResult *) palloc0(sizeof (IndexBulkDeleteResult));
+        //
+        //      stats->estimated_count = false;
+        //      stats->tuples_removed = tuples_removed;
+    }
+    PG_BINGO_END
+}
+
 /*
  *	Insert an index tuple into a bingo table.
  *
@@ -88,58 +161,50 @@ Datum bingo_insert(PG_FUNCTION_ARGS)
 
     bingoLockIndexMutation(index);
     PG_TRY();
-    {PG_BINGO_BEGIN{BingoPgWrapper rel_namespace;
-    const char* index_schema = rel_namespace.getRelNameSpace(index->rd_id);
-
-    BingoPgBuild build_engine(index, 0, index_schema, false);
-    /*
-     * Insert a new structure
-     */
-    result = build_engine.insertStructureSingle(ht_ctid, values[0]);
-}
-PG_BINGO_END
-}
-PG_CATCH();
-{
+    {
+        result = bingoInsertStructureLocked(index, ht_ctid, values[0]);
+    }
+    PG_CATCH();
+    {
+        bingoUnlockIndexMutation(index);
+        PG_RE_THROW();
+    }
+    PG_END_TRY();
     bingoUnlockIndexMutation(index);
-    PG_RE_THROW();
-}
-PG_END_TRY();
-bingoUnlockIndexMutation(index);
 
-// #ifdef NOT_USED
-//	Relation	heapRel = (Relation) PG_GETARG_POINTER(4);
-//	IndexUniqueCheck checkUnique = (IndexUniqueCheck) PG_GETARG_INT32(5);
-// #endif
-//	IndexTuple	itup;
-//
-//	/* generate an index tuple */
-//	itup = _hash_form_tuple(rel, values, isnull);
-//	itup->t_tid = *ht_ctid;
-//
-//	/*
-//	 * If the single index key is null, we don't insert it into the index.
-//	 * Hash tables support scans on '='. Relational algebra says that A = B
-//	 * returns null if either A or B is null.  This means that no
-//	 * qualification used in an index scan could ever return true on a null
-//	 * attribute.  It also means that indices can't be used by ISNULL or
-//	 * NOTNULL scans, but that's an artifact of the strategy map architecture
-//	 * chosen in 1986, not of the way nulls are handled here.
-//	 */
-//	if (IndexTupleHasNulls(itup))
-//	{
-//		pfree(itup);
-//		PG_RETURN_BOOL(false);
-//	}
-//
-//	_hash_doinsert(rel, itup);
-//
-//	pfree(itup);
+    // #ifdef NOT_USED
+    //	Relation	heapRel = (Relation) PG_GETARG_POINTER(4);
+    //	IndexUniqueCheck checkUnique = (IndexUniqueCheck) PG_GETARG_INT32(5);
+    // #endif
+    //	IndexTuple	itup;
+    //
+    //	/* generate an index tuple */
+    //	itup = _hash_form_tuple(rel, values, isnull);
+    //	itup->t_tid = *ht_ctid;
+    //
+    //	/*
+    //	 * If the single index key is null, we don't insert it into the index.
+    //	 * Hash tables support scans on '='. Relational algebra says that A = B
+    //	 * returns null if either A or B is null.  This means that no
+    //	 * qualification used in an index scan could ever return true on a null
+    //	 * attribute.  It also means that indices can't be used by ISNULL or
+    //	 * NOTNULL scans, but that's an artifact of the strategy map architecture
+    //	 * chosen in 1986, not of the way nulls are handled here.
+    //	 */
+    //	if (IndexTupleHasNulls(itup))
+    //	{
+    //		pfree(itup);
+    //		PG_RETURN_BOOL(false);
+    //	}
+    //
+    //	_hash_doinsert(rel, itup);
+    //
+    //	pfree(itup);
 
 #if PG_VERSION_NUM / 100 >= 906
-return result;
+    return result;
 #else
-PG_RETURN_BOOL(result);
+    PG_RETURN_BOOL(result);
 #endif
 }
 
@@ -168,69 +233,24 @@ Datum bingo_bulkdelete(PG_FUNCTION_ARGS)
     Relation index_rel = info->index;
     bingoLockIndexMutation(index_rel);
     PG_TRY();
-    {PG_BINGO_BEGIN{/*
-                     * Initialize local variables
-                     */
-                    double tuples_removed = 0;
-    ItemPointerData item_data;
-    ItemPointer item_ptr = &item_data;
-    BingoPgExternalBitset section_bitset(BINGO_MOLS_PER_SECTION);
-
-    /*
-     * Create index manager. VACUUM mutates the section existence
-     * bitsets and metapage count, so use the WAL-enabled update path.
-     */
-    BingoPgIndex bingo_index(index_rel);
-    bingo_index.updateBegin();
-
-    /*
-     * Iterate through all the sections and search for removed tuples
-     */
-    for (int section_idx = 0; section_idx != bingo_index.readEnd(); section_idx = bingo_index.readNext(section_idx))
     {
-        bingo_index.getSectionBitset(section_idx, section_bitset);
-        /*
-         * Iterate through section structures
-         */
-        for (int mol_idx = section_bitset.begin(); mol_idx != section_bitset.end(); mol_idx = section_bitset.next(mol_idx))
-        {
-            bingo_index.readTidItem(section_idx, mol_idx, item_ptr);
-            if (bulk_del_cb(item_ptr, cb_state))
-            {
-                /*
-                 * Remove the structure from the bingo index
-                 */
-                bingo_index.removeStructure(section_idx, mol_idx);
-                tuples_removed += 1;
-            }
-        }
+        bingoBulkDeleteLocked(index_rel, bulk_del_cb, cb_state);
     }
+    PG_CATCH();
+    {
+        bingoUnlockIndexMutation(index_rel);
+        PG_RE_THROW();
+    }
+    PG_END_TRY();
+    bingoUnlockIndexMutation(index_rel);
+
     /*
      * Always return null since no index values are removed
      */
-    //      if (stats == NULL)
-    //         stats = (IndexBulkDeleteResult *) palloc0(sizeof (IndexBulkDeleteResult));
-    //
-    //      stats->estimated_count = false;
-    //      stats->tuples_removed = tuples_removed;
-}
-PG_BINGO_END
-}
-PG_CATCH();
-{
-    bingoUnlockIndexMutation(index_rel);
-    PG_RE_THROW();
-}
-PG_END_TRY();
-bingoUnlockIndexMutation(index_rel);
-
-/*
- * Always return null since no index values are removed
- */
 #if PG_VERSION_NUM / 100 >= 906
-return NULL;
+    return NULL;
 #else
-PG_RETURN_POINTER(NULL);
+    PG_RETURN_POINTER(NULL);
 #endif
 }
 

@@ -87,7 +87,6 @@ Datum bingo_insert(PG_FUNCTION_ARGS)
     bool result = false;
 
     bingoLockIndexMutation(index);
-    // clang-format off
     PG_TRY();
     {
         PG_BINGO_BEGIN
@@ -109,7 +108,6 @@ Datum bingo_insert(PG_FUNCTION_ARGS)
         PG_RE_THROW();
     }
     PG_END_TRY();
-    // clang-format on
     bingoUnlockIndexMutation(index);
 
     // #ifdef NOT_USED
@@ -172,7 +170,6 @@ Datum bingo_bulkdelete(PG_FUNCTION_ARGS)
 
     Relation index_rel = info->index;
     bingoLockIndexMutation(index_rel);
-    // clang-format off
     PG_TRY();
     {
         PG_BINGO_BEGIN
@@ -231,7 +228,6 @@ Datum bingo_bulkdelete(PG_FUNCTION_ARGS)
         PG_RE_THROW();
     }
     PG_END_TRY();
-    // clang-format on
     bingoUnlockIndexMutation(index_rel);
 
     /*

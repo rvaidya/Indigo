@@ -51,7 +51,7 @@ static void bingoUnlockIndexMutation(Relation index)
 }
 
 /*
- *\tInsert an index tuple into a bingo table.
+ *	Insert an index tuple into a bingo table.
  *
  */
 #if PG_VERSION_NUM / 100 >= 1400
@@ -113,33 +113,33 @@ Datum bingo_insert(PG_FUNCTION_ARGS)
     bingoUnlockIndexMutation(index);
 
     // #ifdef NOT_USED
-    //\tRelation\theapRel = (Relation) PG_GETARG_POINTER(4);
-    //\tIndexUniqueCheck checkUnique = (IndexUniqueCheck) PG_GETARG_INT32(5);
+    //	Relation	heapRel = (Relation) PG_GETARG_POINTER(4);
+    //	IndexUniqueCheck checkUnique = (IndexUniqueCheck) PG_GETARG_INT32(5);
     // #endif
-    //\tIndexTuple\titup;
+    //	IndexTuple	itup;
     //
-    //\t/* generate an index tuple */
-    //\titup = _hash_form_tuple(rel, values, isnull);
-    //\titup->t_tid = *ht_ctid;
+    //	/* generate an index tuple */
+    //	itup = _hash_form_tuple(rel, values, isnull);
+    //	itup->t_tid = *ht_ctid;
     //
-    //\t/*
-    //\t * If the single index key is null, we don't insert it into the index.
-    //\t * Hash tables support scans on '='. Relational algebra says that A = B
-    //\t * returns null if either A or B is null.  This means that no
-    //\t * qualification used in an index scan could ever return true on a null
-    //\t * attribute.  It also means that indices can't be used by ISNULL or
-    //\t * NOTNULL scans, but that's an artifact of the strategy map architecture
-    //\t * chosen in 1986, not of the way nulls are handled here.
-    //\t */
-    //\tif (IndexTupleHasNulls(itup))
-    //\t{
-    //\t\tpfree(itup);
-    //\t\tPG_RETURN_BOOL(false);
-    //\t}
+    //	/*
+    //	 * If the single index key is null, we don't insert it into the index.
+    //	 * Hash tables support scans on '='. Relational algebra says that A = B
+    //	 * returns null if either A or B is null.  This means that no
+    //	 * qualification used in an index scan could ever return true on a null
+    //	 * attribute.  It also means that indices can't be used by ISNULL or
+    //	 * NOTNULL scans, but that's an artifact of the strategy map architecture
+    //	 * chosen in 1986, not of the way nulls are handled here.
+    //	 */
+    //	if (IndexTupleHasNulls(itup))
+    //	{
+    //		pfree(itup);
+    //		PG_RETURN_BOOL(false);
+    //	}
     //
-    //\t_hash_doinsert(rel, itup);
+    //	_hash_doinsert(rel, itup);
     //
-    //\tpfree(itup);
+    //	pfree(itup);
 
 #if PG_VERSION_NUM / 100 >= 906
     return result;

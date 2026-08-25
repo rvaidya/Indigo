@@ -51,7 +51,7 @@ static void bingoUnlockIndexMutation(Relation index)
 }
 
 /*
- *	Insert an index tuple into a bingo table.
+ *\tInsert an index tuple into a bingo table.
  *
  */
 #if PG_VERSION_NUM / 100 >= 1400
@@ -87,6 +87,7 @@ Datum bingo_insert(PG_FUNCTION_ARGS)
     bool result = false;
 
     bingoLockIndexMutation(index);
+    // clang-format off
     PG_TRY();
     {
         PG_BINGO_BEGIN
@@ -108,36 +109,37 @@ Datum bingo_insert(PG_FUNCTION_ARGS)
         PG_RE_THROW();
     }
     PG_END_TRY();
+    // clang-format on
     bingoUnlockIndexMutation(index);
 
     // #ifdef NOT_USED
-    //	Relation	heapRel = (Relation) PG_GETARG_POINTER(4);
-    //	IndexUniqueCheck checkUnique = (IndexUniqueCheck) PG_GETARG_INT32(5);
+    //\tRelation\theapRel = (Relation) PG_GETARG_POINTER(4);
+    //\tIndexUniqueCheck checkUnique = (IndexUniqueCheck) PG_GETARG_INT32(5);
     // #endif
-    //	IndexTuple	itup;
+    //\tIndexTuple\titup;
     //
-    //	/* generate an index tuple */
-    //	itup = _hash_form_tuple(rel, values, isnull);
-    //	itup->t_tid = *ht_ctid;
+    //\t/* generate an index tuple */
+    //\titup = _hash_form_tuple(rel, values, isnull);
+    //\titup->t_tid = *ht_ctid;
     //
-    //	/*
-    //	 * If the single index key is null, we don't insert it into the index.
-    //	 * Hash tables support scans on '='. Relational algebra says that A = B
-    //	 * returns null if either A or B is null.  This means that no
-    //	 * qualification used in an index scan could ever return true on a null
-    //	 * attribute.  It also means that indices can't be used by ISNULL or
-    //	 * NOTNULL scans, but that's an artifact of the strategy map architecture
-    //	 * chosen in 1986, not of the way nulls are handled here.
-    //	 */
-    //	if (IndexTupleHasNulls(itup))
-    //	{
-    //		pfree(itup);
-    //		PG_RETURN_BOOL(false);
-    //	}
+    //\t/*
+    //\t * If the single index key is null, we don't insert it into the index.
+    //\t * Hash tables support scans on '='. Relational algebra says that A = B
+    //\t * returns null if either A or B is null.  This means that no
+    //\t * qualification used in an index scan could ever return true on a null
+    //\t * attribute.  It also means that indices can't be used by ISNULL or
+    //\t * NOTNULL scans, but that's an artifact of the strategy map architecture
+    //\t * chosen in 1986, not of the way nulls are handled here.
+    //\t */
+    //\tif (IndexTupleHasNulls(itup))
+    //\t{
+    //\t\tpfree(itup);
+    //\t\tPG_RETURN_BOOL(false);
+    //\t}
     //
-    //	_hash_doinsert(rel, itup);
+    //\t_hash_doinsert(rel, itup);
     //
-    //	pfree(itup);
+    //\tpfree(itup);
 
 #if PG_VERSION_NUM / 100 >= 906
     return result;
@@ -170,6 +172,7 @@ Datum bingo_bulkdelete(PG_FUNCTION_ARGS)
 
     Relation index_rel = info->index;
     bingoLockIndexMutation(index_rel);
+    // clang-format off
     PG_TRY();
     {
         PG_BINGO_BEGIN
@@ -228,6 +231,7 @@ Datum bingo_bulkdelete(PG_FUNCTION_ARGS)
         PG_RE_THROW();
     }
     PG_END_TRY();
+    // clang-format on
     bingoUnlockIndexMutation(index_rel);
 
     /*

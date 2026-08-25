@@ -232,6 +232,7 @@ Datum bingo_build(PG_FUNCTION_ARGS)
              * Preserve PostgreSQL errors raised by the heap scan, including
              * QUERY_CANCELED. Do not convert them into a Bingo XX000 error.
              */
+            // clang-format off
             PG_TRY();
             {
 #if PG_VERSION_NUM / 100 >= 1200
@@ -249,6 +250,7 @@ Datum bingo_build(PG_FUNCTION_ARGS)
                 FlushErrorState();
             }
             PG_END_TRY();
+            // clang-format on
 
             if (build_error == nullptr)
                 build_engine.finish();

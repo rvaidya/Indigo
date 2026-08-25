@@ -14,7 +14,7 @@ SHADOW_TABLE = f"{BINGO_INDEX}_shadow"
 SHADOW_HASH_TABLE = f"{BINGO_INDEX}_shadow_hash"
 PRODUCTION_UPDATE_VALUE = "O=C1c2ccccc2N=NN1COc1cc(Cl)c(F)cc1"
 INVALID_SMILES = "C1CC"
-VALID_EXACT_SMILES = "N#N"
+VALID_EXACT_SMILES = "CCO"
 
 
 def _connect(config):
@@ -406,13 +406,58 @@ def test_reject_invalid_structures_aborts_build_without_publishing_index(
         assert cursor.fetchone()[0] is None
         cursor.execute("SELECT to_regclass(%s)", (SHADOW_HASH_TABLE,))
         assert cursor.fetchone()[0] is None
+        cursor.execute(
+            f"""
+            UPDATE {TABLE}
+            SET smiles_isomeric = 'CC',
+                smiles_indigo = 'CC'
+            WHERE id = 50
+            """
+        )
 
     _create_bingo_index(
         connection,
         nthreads=2,
-        reject_invalid_structures=0,
+        reject_invalid_structures=1,
     )
-    _assert_bingo_matches_indexable_heap(connection)
+    _assert_bingo_matches_heap(connection)
+    _assert_no_zero_pages(connection)
+
+    shadow_before_invalid = _shadow_counts(connection)
+    with pytest.raises(psycopg2.Error):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {TABLE} (smiles_isomeric, smiles_indigo)
+                VALUES (%s, %s)
+                """,
+                (INVALID_SMILES, INVALID_SMILES),
+            )
+
+    assert _shadow_counts(connection) == shadow_before_invalid
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT count(*)
+            FROM {TABLE}
+            WHERE smiles_isomeric = %s
+            """,
+            (INVALID_SMILES,),
+        )
+        assert cursor.fetchone()[0] == 0
+        cursor.execute(
+            f"""
+            INSERT INTO {TABLE} (smiles_isomeric, smiles_indigo)
+            VALUES (%s, %s)
+            """,
+            (VALID_EXACT_SMILES, VALID_EXACT_SMILES),
+        )
+
+    shadow_after_valid = _shadow_counts(connection)
+    assert shadow_after_valid[0] == shadow_before_invalid[0] + 1
+    assert shadow_after_valid[1] > shadow_before_invalid[1]
+    _assert_exact_count(connection, VALID_EXACT_SMILES, 1)
     _assert_no_zero_pages(connection)
 
 

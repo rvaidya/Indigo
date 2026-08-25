@@ -86,6 +86,23 @@ def _reset_schema(connection, rows=4000, create_bingo_index=True):
 def _assert_bingo_matches_heap(connection):
     with connection.cursor() as cursor:
         cursor.execute(
+            f"SELECT count(*) FROM {TABLE} WHERE length(smiles_isomeric) >= 2"
+        )
+        expected = cursor.fetchone()[0]
+        cursor.execute(
+            f"""
+            SELECT count(*)
+            FROM {TABLE}
+            WHERE smiles_isomeric @ ('CC', '')::bingo.sub
+            """
+        )
+        actual = cursor.fetchone()[0]
+    assert actual == expected
+
+
+def _assert_bingo_matches_indexable_heap(connection):
+    with connection.cursor() as cursor:
+        cursor.execute(
             f"""
             SELECT count(*)
             FROM {TABLE}
@@ -318,7 +335,7 @@ def test_parallel_build_skips_invalid_structures_and_finishes_cleanly(
         reject_invalid_structures=0,
     )
 
-    _assert_bingo_matches_heap(connection)
+    _assert_bingo_matches_indexable_heap(connection)
     _assert_no_zero_pages(connection)
 
     shadow_before_invalid = _shadow_counts(connection)
@@ -353,7 +370,7 @@ def test_parallel_build_skips_invalid_structures_and_finishes_cleanly(
     with connection.cursor() as cursor:
         cursor.execute(f"REINDEX INDEX {BINGO_INDEX}")
 
-    _assert_bingo_matches_heap(connection)
+    _assert_bingo_matches_indexable_heap(connection)
     _assert_exact_count(connection, VALID_EXACT_SMILES, 1)
     _assert_no_zero_pages(connection)
 
@@ -395,11 +412,13 @@ def test_reject_invalid_structures_aborts_build_without_publishing_index(
         nthreads=2,
         reject_invalid_structures=0,
     )
-    _assert_bingo_matches_heap(connection)
+    _assert_bingo_matches_indexable_heap(connection)
     _assert_no_zero_pages(connection)
 
 
-def test_repeated_checkmolecule_does_not_grow_top_memory_context(postgres_storage):
+def test_repeated_checkmolecule_does_not_grow_top_memory_context(
+    postgres_storage,
+):
     connection, _ = postgres_storage
 
     with connection.cursor() as cursor:
@@ -408,7 +427,7 @@ def test_repeated_checkmolecule_does_not_grow_top_memory_context(postgres_storag
             SELECT count(*)
             FROM generate_series(1, 10) AS g
             WHERE bingo.checkmolecule(
-                CASE WHEN g %% 2 = 0 THEN 'CC' ELSE 'CCC' END
+                CASE WHEN g % 2 = 0 THEN 'CC' ELSE 'CCC' END
             ) IS NULL
             """
         )
@@ -422,7 +441,7 @@ def test_repeated_checkmolecule_does_not_grow_top_memory_context(postgres_storag
             SELECT count(*)
             FROM generate_series(1, 50000) AS g
             WHERE bingo.checkmolecule(
-                CASE WHEN g %% 2 = 0 THEN 'CC' ELSE 'CCC' END
+                CASE WHEN g % 2 = 0 THEN 'CC' ELSE 'CCC' END
             ) IS NULL
             """
         )

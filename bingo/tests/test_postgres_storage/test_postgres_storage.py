@@ -6,7 +6,6 @@ import pytest
 from ..constants import DB_POSTGRES
 from ..dbc.base import get_config
 
-
 SCHEMA = "bingo_pg_storage_regression"
 TABLE = f"{SCHEMA}.structures"
 BINGO_INDEX = f"{SCHEMA}.structures_molecule_bingo"
@@ -43,29 +42,25 @@ def _create_bingo_index(
 
     with_clause = f"WITH ({', '.join(options)})" if options else ""
     with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
+        cursor.execute(f"""
             CREATE INDEX structures_molecule_bingo
             ON {TABLE}
             USING bingo_idx (smiles_isomeric bingo.molecule)
             {with_clause}
-            """
-        )
+            """)
 
 
 def _reset_schema(connection, rows=4000, create_bingo_index=True):
     with connection.cursor() as cursor:
         cursor.execute(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE")
         cursor.execute(f"CREATE SCHEMA {SCHEMA}")
-        cursor.execute(
-            f"""
+        cursor.execute(f"""
             CREATE TABLE {TABLE} (
                 id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 smiles_isomeric text NOT NULL,
                 smiles_indigo text NOT NULL
             )
-            """
-        )
+            """)
         if rows:
             cursor.execute(
                 f"""
@@ -89,35 +84,29 @@ def _assert_bingo_matches_heap(connection):
             f"SELECT count(*) FROM {TABLE} WHERE length(smiles_isomeric) >= 2"
         )
         expected = cursor.fetchone()[0]
-        cursor.execute(
-            f"""
+        cursor.execute(f"""
             SELECT count(*)
             FROM {TABLE}
             WHERE smiles_isomeric @ ('CC', '')::bingo.sub
-            """
-        )
+            """)
         actual = cursor.fetchone()[0]
     assert actual == expected
 
 
 def _assert_bingo_matches_indexable_heap(connection):
     with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
+        cursor.execute(f"""
             SELECT count(*)
             FROM {TABLE}
             WHERE length(smiles_isomeric) >= 2
               AND bingo.checkmolecule(smiles_isomeric) IS NULL
-            """
-        )
+            """)
         expected = cursor.fetchone()[0]
-        cursor.execute(
-            f"""
+        cursor.execute(f"""
             SELECT count(*)
             FROM {TABLE}
             WHERE smiles_isomeric @ ('CC', '')::bingo.sub
-            """
-        )
+            """)
         actual = cursor.fetchone()[0]
     assert actual == expected
 
@@ -147,6 +136,7 @@ def _shadow_counts(connection):
 
 def _assert_no_zero_pages(connection):
     with connection.cursor() as cursor:
+        cursor.execute("CHECKPOINT")
         cursor.execute(
             """
             WITH relation AS (
@@ -179,13 +169,11 @@ def _assert_no_zero_pages(connection):
 
 def _top_memory_bytes(connection):
     with connection.cursor() as cursor:
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT COALESCE(sum(total_bytes), 0)
             FROM pg_backend_memory_contexts
             WHERE name = 'TopMemoryContext'
-            """
-        )
+            """)
         return cursor.fetchone()[0]
 
 
@@ -219,7 +207,9 @@ def postgres_storage(request):
         connection.close()
 
 
-def test_non_hot_update_vacuum_and_reindex_preserve_bingo_results(postgres_storage):
+def test_non_hot_update_vacuum_and_reindex_preserve_bingo_results(
+    postgres_storage,
+):
     connection, _ = postgres_storage
     _reset_schema(connection)
     _assert_bingo_matches_heap(connection)
@@ -242,12 +232,10 @@ def test_non_hot_update_vacuum_and_reindex_preserve_bingo_results(postgres_stora
     _assert_bingo_matches_heap(connection)
 
     with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
+        cursor.execute(f"""
             INSERT INTO {TABLE} (smiles_isomeric, smiles_indigo)
             VALUES ('CCCCCCCCCCCCCCCCCCCC', 'CCCCCCCCCCCCCCCCCCCC')
-            """
-        )
+            """)
 
     _assert_bingo_matches_heap(connection)
 
@@ -266,14 +254,12 @@ def test_concurrent_inserts_and_non_hot_updates_keep_bingo_index_consistent(
         worker_connection.autocommit = True
         try:
             with worker_connection.cursor() as cursor:
-                cursor.execute(
-                    f"""
+                cursor.execute(f"""
                     INSERT INTO {TABLE} (smiles_isomeric, smiles_indigo)
                     SELECT repeat('C', ((g + {worker}) % 48) + 1),
                            repeat('C', ((g + {worker}) % 48) + 1)
                     FROM generate_series(1, {rows_per_worker}) AS g
-                    """
-                )
+                    """)
         finally:
             worker_connection.close()
 
@@ -287,13 +273,11 @@ def test_concurrent_inserts_and_non_hot_updates_keep_bingo_index_consistent(
         worker_connection.autocommit = True
         try:
             with worker_connection.cursor() as cursor:
-                cursor.execute(
-                    f"""
+                cursor.execute(f"""
                     UPDATE {TABLE}
                     SET smiles_indigo = smiles_indigo || 'C'
                     WHERE (id % {workers}) = {worker}
-                    """
-                )
+                    """)
         finally:
             worker_connection.close()
 
@@ -406,14 +390,12 @@ def test_reject_invalid_structures_aborts_build_without_publishing_index(
         assert cursor.fetchone()[0] is None
         cursor.execute("SELECT to_regclass(%s)", (SHADOW_HASH_TABLE,))
         assert cursor.fetchone()[0] is None
-        cursor.execute(
-            f"""
+        cursor.execute(f"""
             UPDATE {TABLE}
             SET smiles_isomeric = 'CC',
                 smiles_indigo = 'CC'
             WHERE id = 50
-            """
-        )
+            """)
 
     _create_bingo_index(
         connection,
@@ -467,29 +449,25 @@ def test_repeated_checkmolecule_does_not_grow_top_memory_context(
     connection, _ = postgres_storage
 
     with connection.cursor() as cursor:
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT count(*)
             FROM generate_series(1, 10) AS g
             WHERE bingo.checkmolecule(
                 CASE WHEN g % 2 = 0 THEN 'CC' ELSE 'CCC' END
             ) IS NULL
-            """
-        )
+            """)
         assert cursor.fetchone()[0] == 10
 
     before = _top_memory_bytes(connection)
 
     with connection.cursor() as cursor:
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT count(*)
             FROM generate_series(1, 50000) AS g
             WHERE bingo.checkmolecule(
                 CASE WHEN g % 2 = 0 THEN 'CC' ELSE 'CCC' END
             ) IS NULL
-            """
-        )
+            """)
         assert cursor.fetchone()[0] == 50000
 
     after = _top_memory_bytes(connection)

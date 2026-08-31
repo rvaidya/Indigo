@@ -1160,6 +1160,45 @@ void SmilesLoader::_readOtherStuff()
         _bmol->removeAtoms(to_remove);
 }
 
+int SmilesLoader::_readCycleNumber(int first_char)
+{
+    if (isdigit(first_char))
+    {
+        _scanner.skip(1);
+        return first_char - '0';
+    }
+
+    if (first_char != '%')
+        throw Error("cycle number expected");
+
+    _scanner.skip(1);
+
+    if (_scanner.lookNext() != '(')
+        return _scanner.readIntFix(2);
+
+    _scanner.skip(1);
+
+    int number = 0;
+    int digits = 0;
+
+    while (!_scanner.isEOF() && isdigit(_scanner.lookNext()))
+    {
+        if (digits == 5)
+            throw Error("cycle number is too large");
+
+        number = number * 10 + (_scanner.readChar() - '0');
+        digits++;
+    }
+
+    if (digits == 0 || _scanner.isEOF() || _scanner.readChar() != ')')
+        throw Error("invalid extended cycle number");
+
+    if (number < 1)
+        throw Error("cycle number %d is not allowed", number);
+
+    return number;
+}
+
 void SmilesLoader::_parseMolecule()
 {
     _cycles.clear();
@@ -1183,13 +1222,7 @@ void SmilesLoader::_parseMolecule()
         {
             while (isdigit(next) || next == '%')
             {
-                int number;
-
-                _scanner.skip(1);
-                if (next == '%')
-                    number = _scanner.readIntFix(2);
-                else
-                    number = next - '0';
+                int number = _readCycleNumber(next);
 
                 while (_cycles.size() <= number)
                     _cycles.push().clear();
@@ -1366,13 +1399,7 @@ void SmilesLoader::_parseMolecule()
             {
                 if (isdigit(next) || next == '%')
                 {
-                    int number;
-                    _scanner.skip(1);
-
-                    if (next == '%')
-                        number = _scanner.readIntFix(2);
-                    else
-                        number = next - '0';
+                    int number = _readCycleNumber(next);
 
                     // closing some previous numbered atom, like the last '1' in C1C=CC=CC=1
                     if (number >= 0 && number < _cycles.size() && _cycles[number].beg >= 0)

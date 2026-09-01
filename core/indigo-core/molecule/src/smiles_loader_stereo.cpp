@@ -25,11 +25,31 @@
 #include "graph/cycle_basis.h"
 #include "molecule/elements.h"
 #include "molecule/molecule.h"
+#include "molecule/molecule_arom.h"
 #include "molecule/molecule_stereocenters.h"
 #include "molecule/query_molecule.h"
 #include "molecule/smiles_loader.h"
 
 using namespace indigo;
+
+bool SmilesLoader::_isPossibleStereocenter(int atom_idx)
+{
+    if (_bmol->isPossibleStereocenter(atom_idx))
+        return true;
+
+    // Aromatic SMILES can carry tetrahedral chirality that is representable
+    // only after choosing a Kekule form. Keep the loaded molecule aromatic,
+    // but validate the explicit stereo descriptor against a dearomatized clone.
+    if (_mol == nullptr || atom_idx < 0 || atom_idx >= _atoms.size() || !_atoms[atom_idx].aromatic ||
+        _mol->getAtomAromaticity(atom_idx) != ATOM_AROMATIC)
+        return false;
+
+    Molecule dearomatized;
+    dearomatized.clone(*_mol, 0, 0);
+    dearomatized.dearomatize(AromaticityOptions());
+
+    return dearomatized.isPossibleStereocenter(atom_idx);
+}
 
 void SmilesLoader::_calcStereocenters()
 {
@@ -177,7 +197,7 @@ void SmilesLoader::_calcStereocenters()
             if (_atoms[i].chirality == 2)
                 std::swap(pyramid[0], pyramid[1]);
 
-            if (!_bmol->isPossibleStereocenter(i))
+            if (!_isPossibleStereocenter(i))
             {
                 if (!stereochemistry_options.ignore_errors)
                     throw Error("chirality not possible on atom #%d", i);
@@ -217,7 +237,7 @@ void SmilesLoader::_validateStereoCenters()
     for (int i = _bmol->stereocenters.begin(); i < _bmol->stereocenters.end(); i = _bmol->stereocenters.next(i))
     {
         auto atom_idx = _bmol->stereocenters.getAtomIndex(i);
-        if (_bmol->isPossibleStereocenter(atom_idx) || _bmol->stereocenters.isAtropisomeric(atom_idx))
+        if (_isPossibleStereocenter(atom_idx) || _bmol->stereocenters.isAtropisomeric(atom_idx))
             continue;
         if (!stereochemistry_options.ignore_errors)
             throw Error("atom %d is not a stereocenter", atom_idx);

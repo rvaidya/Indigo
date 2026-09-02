@@ -27,6 +27,18 @@ original_stereo = len([atom for atom in mol.iterateStereocenters()])
 roundtrip_stereo = len([atom for atom in roundtrip.iterateStereocenters()])
 assert roundtrip_stereo == original_stereo
 
+multi_aromatic = aromatic + "." + aromatic
+multi_roundtrip = indigo.loadMolecule(multi_aromatic)
+multi_stereo = len([atom for atom in multi_roundtrip.iterateStereocenters()])
+assert multi_stereo == 2 * roundtrip_stereo
+
+multi_canonical = multi_roundtrip.canonicalSmiles()
+multi_canonical_roundtrip = indigo.loadMolecule(multi_canonical)
+assert (
+    len([atom for atom in multi_canonical_roundtrip.iterateStereocenters()])
+    == multi_stereo
+)
+
 connectivity_source = "CC1C(S2=NC(=NS1=N2)C(F)(F)F)C"
 connectivity = indigo.loadMolecule(connectivity_source)
 connectivity.dearomatize()

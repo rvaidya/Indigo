@@ -25,6 +25,7 @@
 #include "graph/cycle_basis.h"
 #include "molecule/elements.h"
 #include "molecule/molecule.h"
+#include "molecule/molecule_dearom.h"
 #include "molecule/molecule_stereocenters.h"
 #include "molecule/query_molecule.h"
 #include "molecule/smiles_loader.h"
@@ -58,6 +59,13 @@ SmilesLoader::~SmilesLoader()
     _atoms.clear();
 }
 
+void SmilesLoader::_resetAromaticStereoValidation()
+{
+    _stereo_dearomatization_matcher.reset();
+    _stereo_dearomatizations.reset();
+    _aromatic_stereocenter_cache.clear();
+}
+
 void SmilesLoader::setOptions(const LoaderOptions& opts)
 {
     stereochemistry_options = opts.stereochemistry_options;
@@ -78,6 +86,7 @@ LoaderOptions SmilesLoader::getOptions() const
 
 void SmilesLoader::loadMolecule(Molecule& mol)
 {
+    _resetAromaticStereoValidation();
     mol.clear();
     _bmol = &mol;
     _mol = &mol;
@@ -93,6 +102,7 @@ void SmilesLoader::loadMolecule(Molecule& mol)
 
 void SmilesLoader::loadQueryMolecule(QueryMolecule& mol)
 {
+    _resetAromaticStereoValidation();
     mol.clear();
     _bmol = &mol;
     _mol = 0;
@@ -103,6 +113,7 @@ void SmilesLoader::loadQueryMolecule(QueryMolecule& mol)
 
 void SmilesLoader::loadSMARTS(QueryMolecule& mol)
 {
+    _resetAromaticStereoValidation();
     mol.clear();
     _bmol = &mol;
     _mol = 0;
@@ -194,6 +205,9 @@ void SmilesLoader::_loadParsedMolecule()
     if (_scanner.lookNext() == '|')
     {
         _scanner.skip(1);
+        // CXSMILES extensions can replace atoms or remove bonds after the
+        // initial stereocenter pass, so discard validation state before parsing them.
+        _resetAromaticStereoValidation();
         _readOtherStuff();
         if (_has_atom_coordinates || _has_directions_on_rings)
         {
@@ -248,6 +262,10 @@ void SmilesLoader::_loadParsedMolecule()
     }
 
     // handle the polymers (part of the CurlySMILES specification)
+    if (_polymer_repetitions.size() > 0)
+        // Polymer expansion can add/remove bonds after the initial stereocenter pass.
+        _resetAromaticStereoValidation();
+
     for (i = 0; i < _polymer_repetitions.size(); i++)
         _handlePolymerRepetition(i);
 }

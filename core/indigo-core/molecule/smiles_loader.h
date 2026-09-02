@@ -37,6 +37,8 @@ namespace indigo
 
     class Scanner;
     class BaseMolecule;
+    class DearomatizationMatcher;
+    class DearomatizationsStorage;
     class Molecule;
     class QueryMolecule;
 
@@ -88,6 +90,13 @@ namespace indigo
         {
             _POLYMER_START = 1,
             _POLYMER_END = 2
+        };
+
+        enum
+        {
+            _AROMATIC_STEREO_UNKNOWN = 0,
+            _AROMATIC_STEREO_VALID = 1,
+            _AROMATIC_STEREO_INVALID = 2
         };
 
         class DLLEXPORT _AtomDesc
@@ -174,6 +183,10 @@ namespace indigo
         QueryMolecule* _qmol;
         Molecule* _mol;
 
+        std::unique_ptr<DearomatizationsStorage> _stereo_dearomatizations;
+        std::unique_ptr<DearomatizationMatcher> _stereo_dearomatization_matcher;
+        Array<byte> _aromatic_stereocenter_cache;
+
         void _loadMolecule();
         void _parseMolecule();
         void _loadParsedMolecule();
@@ -189,6 +202,7 @@ namespace indigo
         void _addLigandsForStereo();
         bool _isAlleneLike(int i);
         bool _isPossibleStereocenter(int atom_idx);
+        void _resetAromaticStereoValidation();
         void _handleCurlyBrace(_AtomDesc& atom, bool& inside_polymer);
         void _handlePolymerRepetition(int i);
 

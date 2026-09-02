@@ -26,6 +26,7 @@
 #include "molecule/elements.h"
 #include "molecule/molecule.h"
 #include "molecule/molecule_arom.h"
+#include "molecule/molecule_dearom.h"
 #include "molecule/molecule_stereocenters.h"
 #include "molecule/query_molecule.h"
 #include "molecule/smiles_loader.h"
@@ -38,17 +39,106 @@ bool SmilesLoader::_isPossibleStereocenter(int atom_idx)
         return true;
 
     // Aromatic SMILES can carry tetrahedral chirality that is representable
-    // only after choosing a Kekule form. Keep the loaded molecule aromatic,
-    // but validate the explicit stereo descriptor against a dearomatized clone.
+    // only in a valid Kekule form. Validate that possibility without copying
+    // or mutating the loaded aromatic molecule.
     if (_mol == nullptr || atom_idx < 0 || atom_idx >= _atoms.size() || !_atoms[atom_idx].aromatic ||
         _mol->getAtomAromaticity(atom_idx) != ATOM_AROMATIC)
         return false;
 
-    Molecule dearomatized;
-    dearomatized.clone(*_mol, 0, 0);
-    dearomatized.dearomatize(AromaticityOptions());
+    if (_aromatic_stereocenter_cache.size() == 0)
+    {
+        _aromatic_stereocenter_cache.resize(_mol->vertexEnd());
+        _aromatic_stereocenter_cache.zerofill();
+    }
 
-    return dearomatized.isPossibleStereocenter(atom_idx);
+    if (_aromatic_stereocenter_cache[atom_idx] != _AROMATIC_STEREO_UNKNOWN)
+        return _aromatic_stereocenter_cache[atom_idx] == _AROMATIC_STEREO_VALID;
+
+    const Vertex& vertex = _mol->getVertex(atom_idx);
+    if (vertex.degree() > 4 || vertex.degree() <= 2)
+    {
+        _aromatic_stereocenter_cache[atom_idx] = _AROMATIC_STEREO_INVALID;
+        return false;
+    }
+
+    Array<int> aromatic_bonds;
+    int fixed_double_bonds = 0;
+    for (int i = vertex.neiBegin(); i != vertex.neiEnd(); i = vertex.neiNext(i))
+    {
+        const int edge_idx = vertex.neiEdge(i);
+        const int bond_order = _mol->getBondOrder(edge_idx);
+        if (bond_order == BOND_AROMATIC)
+            aromatic_bonds.push(edge_idx);
+        else if (bond_order == BOND_DOUBLE)
+            fixed_double_bonds++;
+        else if (bond_order == BOND_TRIPLE)
+        {
+            _aromatic_stereocenter_cache[atom_idx] = _AROMATIC_STEREO_INVALID;
+            return false;
+        }
+    }
+
+    if (aromatic_bonds.size() == 0)
+    {
+        _aromatic_stereocenter_cache[atom_idx] = _AROMATIC_STEREO_INVALID;
+        return false;
+    }
+
+    if (_stereo_dearomatization_matcher == nullptr)
+    {
+        _stereo_dearomatizations = std::make_unique<DearomatizationsStorage>();
+        AromaticityOptions aromaticity_options;
+        Dearomatizer dearomatizer(*_mol, nullptr, aromaticity_options);
+        dearomatizer.enumerateDearomatizations(*_stereo_dearomatizations);
+        _stereo_dearomatization_matcher = std::make_unique<DearomatizationMatcher>(*_stereo_dearomatizations, *_mol, nullptr);
+    }
+
+    const int combinations = 1 << aromatic_bonds.size();
+    for (int mask = 0; mask < combinations; mask++)
+    {
+        int double_bonds = fixed_double_bonds;
+        for (int i = 0; i < aromatic_bonds.size(); i++)
+            if ((mask & (1 << i)) != 0)
+                double_bonds++;
+
+        if (!_bmol->stereocenters._isPossibleStereocenterWithExactDoubleBonds(*_bmol, atom_idx, double_bonds))
+            continue;
+
+        Array<int> fixed_bonds;
+        bool valid_dearomatization = true;
+        try
+        {
+            for (int i = 0; i < aromatic_bonds.size(); i++)
+            {
+                const int edge_idx = aromatic_bonds[i];
+                const int bond_order = (mask & (1 << i)) != 0 ? BOND_DOUBLE : BOND_SINGLE;
+                if (!_stereo_dearomatization_matcher->fixBond(edge_idx, bond_order))
+                {
+                    valid_dearomatization = false;
+                    break;
+                }
+                fixed_bonds.push(edge_idx);
+            }
+        }
+        catch (...)
+        {
+            for (int i = 0; i < fixed_bonds.size(); i++)
+                _stereo_dearomatization_matcher->unfixBond(fixed_bonds[i]);
+            throw;
+        }
+
+        for (int i = 0; i < fixed_bonds.size(); i++)
+            _stereo_dearomatization_matcher->unfixBond(fixed_bonds[i]);
+
+        if (valid_dearomatization)
+        {
+            _aromatic_stereocenter_cache[atom_idx] = _AROMATIC_STEREO_VALID;
+            return true;
+        }
+    }
+
+    _aromatic_stereocenter_cache[atom_idx] = _AROMATIC_STEREO_INVALID;
+    return false;
 }
 
 void SmilesLoader::_calcStereocenters()

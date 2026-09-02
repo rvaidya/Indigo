@@ -34,6 +34,7 @@ namespace indigo
     class Filter;
     class StereocentersOptions;
     class BaseMolecule;
+    class SmilesLoader;
 
     class DLLEXPORT MoleculeStereocenters
     {
@@ -155,6 +156,8 @@ namespace indigo
         static void rotatePyramid(int* pyramid);
 
     private:
+        friend class SmilesLoader;
+
         struct _Atom
         {
             _Atom() : type(-1), group(1), is_atropisomeric(false), is_tetrahydral(true), pyramid{-1, -1, -1, -1}
@@ -195,6 +198,11 @@ namespace indigo
 
         RedBlackMap<int, _Atom> _stereocenters;
         RedBlackObjMap<int, _AtropoCenter> _atropocenters;
+
+        bool _isPossibleStereocenterWithExactDoubleBonds(BaseMolecule& baseMolecule, int atom_idx, int double_bonds, bool* possible_implicit_h = 0,
+                                                         bool* possible_lone_pair = 0);
+        bool _isPossibleStereocenterConfiguration(BaseMolecule& baseMolecule, int atom_idx, int min_double_bonds, int max_double_bonds,
+                                                  bool* possible_implicit_h, bool* possible_lone_pair);
 
         static int _sign(const Vec3f& v1, const Vec3f& v2, const Vec3f& v3);
         static int _xyzzy(const Vec3f& v1, const Vec3f& v2, const Vec3f& u);

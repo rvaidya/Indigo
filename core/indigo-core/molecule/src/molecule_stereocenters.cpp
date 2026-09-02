@@ -348,6 +348,25 @@ bool MoleculeStereocenters::isPossibleStereocenter(BaseMolecule& baseMolecule, i
             possible_double_bonds++;
     }
 
+    return _isPossibleStereocenterConfiguration(baseMolecule, atom_idx, sure_double_bonds, sure_double_bonds + possible_double_bonds,
+                                                possible_implicit_h, possible_lone_pair);
+}
+
+bool MoleculeStereocenters::_isPossibleStereocenterWithExactDoubleBonds(BaseMolecule& baseMolecule, int atom_idx, int double_bonds,
+                                                                       bool* possible_implicit_h, bool* possible_lone_pair)
+{
+    const int degree = baseMolecule.getVertex(atom_idx).degree();
+    if (degree > 4 || degree <= 2)
+        return false;
+
+    return _isPossibleStereocenterConfiguration(baseMolecule, atom_idx, double_bonds, double_bonds, possible_implicit_h, possible_lone_pair);
+}
+
+bool MoleculeStereocenters::_isPossibleStereocenterConfiguration(BaseMolecule& baseMolecule, int atom_idx, int min_double_bonds, int max_double_bonds,
+                                                                  bool* possible_implicit_h, bool* possible_lone_pair)
+{
+    const Vertex& vertex = baseMolecule.getVertex(atom_idx);
+
     static const _Configuration allowed_stereocenters[] = {
         // element, charge, degree, double bonds, implicit degree
         {ELEM_C, 0, 3, 0, 4},  {ELEM_C, 0, 4, 0, 4}, {ELEM_Si, 0, 3, 0, 4}, {ELEM_Si, 0, 4, 0, 4}, {ELEM_As, 0, 4, 0, 4}, // see PubChem CID 6338551
@@ -360,6 +379,7 @@ bool MoleculeStereocenters::isPossibleStereocenter(BaseMolecule& baseMolecule, i
         *possible_implicit_h = false;
     if (possible_lone_pair != 0)
         *possible_lone_pair = false;
+
     int i;
 
     for (i = 0; i < NELEM(allowed_stereocenters); i++)
@@ -369,7 +389,7 @@ bool MoleculeStereocenters::isPossibleStereocenter(BaseMolecule& baseMolecule, i
         if (as.degree != vertex.degree())
             continue;
 
-        if (as.n_double_bonds < sure_double_bonds || as.n_double_bonds > sure_double_bonds + possible_double_bonds)
+        if (as.n_double_bonds < min_double_bonds || as.n_double_bonds > max_double_bonds)
             continue;
 
         if (!baseMolecule.possibleAtomNumberAndCharge(atom_idx, as.elem, as.charge))

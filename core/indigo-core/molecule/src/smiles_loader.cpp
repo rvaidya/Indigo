@@ -189,6 +189,11 @@ void SmilesLoader::_loadParsedMolecule()
     _calcStereocenters();
     _calcCisTrans();
 
+    // The aromatic @/@@ fallback has been fully validated for the base SMILES at
+    // this point. Any later molecule edit requires validation against final
+    // CX/CurlySMILES chemistry before the load can succeed.
+    const int stereo_validation_revision = _bmol->getEditRevision();
+
     _scanner.skipSpace();
 
     if (_scanner.lookNext() == '|')
@@ -250,6 +255,8 @@ void SmilesLoader::_loadParsedMolecule()
     // handle the polymers (part of the CurlySMILES specification)
     for (i = 0; i < _polymer_repetitions.size(); i++)
         _handlePolymerRepetition(i);
+
+    _validateStereoCenters(stereo_validation_revision);
 }
 
 void SmilesLoader::_markAromaticBonds()
@@ -418,7 +425,6 @@ void SmilesLoader::_loadMolecule()
 
     _parseMolecule();
     _loadParsedMolecule();
-    _validateStereoCenters();
 }
 
 SmilesLoader::_AtomDesc::_AtomDesc(Pool<List<int>::Elem>& neipool) : neighbors(neipool)

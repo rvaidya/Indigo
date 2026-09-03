@@ -177,7 +177,7 @@ namespace indigo
         void _loadMolecule();
         void _parseMolecule();
         void _loadParsedMolecule();
-        void _validateStereoCenters();
+        void _validateStereoCenters(int stereo_validation_revision);
 
         void _calcStereocenters();
         void _calcCisTrans();

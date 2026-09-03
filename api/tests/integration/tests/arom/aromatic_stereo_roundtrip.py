@@ -27,6 +27,27 @@ original_stereo = len([atom for atom in mol.iterateStereocenters()])
 roundtrip_stereo = len([atom for atom in roundtrip.iterateStereocenters()])
 assert roundtrip_stereo == original_stereo
 
+# The opposite sulfur parity must remain a distinct stereoisomer and round-trip.
+opposite_aromatic = expected_aromatic.replace("[s@@]", "[s@]", 1)
+opposite = indigo.loadMolecule(opposite_aromatic)
+opposite_saved = opposite.canonicalSmiles()
+assert opposite_saved != aromatic
+assert len([atom for atom in opposite.iterateStereocenters()]) == original_stereo
+assert indigo.loadMolecule(opposite_saved).canonicalSmiles() == opposite_saved
+
+# Two explicit aromatic sulfur centers in the same aromatic system exercise
+# joint Kekule compatibility rather than independent component validation.
+joint_source = "C[C@@H]1[C@@H]([S@]2=N[S@]1=NC(=N2)C(F)(F)F)C"
+joint = indigo.loadMolecule(joint_source)
+joint.dearomatize()
+joint.aromatize()
+joint_aromatic = joint.canonicalSmiles()
+joint_stereo = len([atom for atom in joint.iterateStereocenters()])
+joint_roundtrip = indigo.loadMolecule(joint_aromatic)
+assert joint_stereo == original_stereo + 1
+assert len([atom for atom in joint_roundtrip.iterateStereocenters()]) == joint_stereo
+assert joint_roundtrip.canonicalSmiles() == joint_aromatic
+
 # Benign CX stereo metadata must preserve the explicitly chiral aromatic center.
 cx_explicit_group = indigo.loadMolecule(expected_aromatic + " |a:4|")
 assert len([atom for atom in cx_explicit_group.iterateStereocenters()]) == original_stereo
@@ -38,6 +59,13 @@ assert len([atom for atom in cx_explicit_group.iterateStereocenters()]) == origi
 cx_unrelated_rsite = expected_aromatic + ".[*] |$" + ";" * 14 + "_R1$|"
 cx_unrelated = indigo.loadMolecule(cx_unrelated_rsite)
 assert len([atom for atom in cx_unrelated.iterateStereocenters()]) == original_stereo
+
+# Coordinates advance the molecule edit revision and rebuild bond-derived stereo.
+# This must trigger final aromatic revalidation without changing the chemistry.
+coordinates = ";".join("%d,%d," % (i, i % 3) for i in range(14))
+cx_coordinates = indigo.loadMolecule(expected_aromatic + " |(" + coordinates + ")|")
+assert cx_coordinates.canonicalSmiles() == aromatic
+assert len([atom for atom in cx_coordinates.iterateStereocenters()]) == original_stereo
 
 
 # Multiple explicit aromatic stereocenters must be validated in one load without
@@ -71,6 +99,19 @@ for invalid in (
         pass
     else:
         raise AssertionError("invalid aromatic carbon chirality was accepted")
+
+
+# Tolerant mode must keep valid aromatic fallback stereo while omitting
+# aromatic chirality that has no globally valid Kekule configuration.
+indigo.setOption("ignore-stereochemistry-errors", True)
+try:
+    tolerant_valid = indigo.loadMolecule(expected_aromatic)
+    tolerant_invalid = indigo.loadMolecule(invalid_aromatic)
+finally:
+    indigo.setOption("ignore-stereochemistry-errors", False)
+
+assert len([atom for atom in tolerant_valid.iterateStereocenters()]) == original_stereo
+assert len([atom for atom in tolerant_invalid.iterateStereocenters()]) == 0
 
 
 cx_group_only = expected_aromatic.replace("[s@@]", "[s]") + " |a:4|"

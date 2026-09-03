@@ -53,11 +53,8 @@ namespace
         return *context.matcher;
     }
 
-    bool isPossibleStereocenter(BaseMolecule& bmol, Molecule* mol, int atom_idx, AromaticStereoValidationContext& context)
+    bool isPossibleAromaticStereocenter(Molecule* mol, int atom_idx, AromaticStereoValidationContext& context)
     {
-        if (bmol.isPossibleStereocenter(atom_idx))
-            return true;
-
         if (mol == nullptr || atom_idx < 0 || atom_idx >= mol->vertexEnd() || !mol->hasVertex(atom_idx) ||
             mol->getAtomAromaticity(atom_idx) != ATOM_AROMATIC)
             return false;
@@ -131,7 +128,11 @@ namespace
                         break;
                     }
 
-                    matcher.fixBond(edge_idx, bond_order);
+                    if (!matcher.fixBond(edge_idx, bond_order))
+                    {
+                        valid = false;
+                        break;
+                    }
                     fixed_bonds.push(edge_idx);
                 }
             }
@@ -300,7 +301,11 @@ void SmilesLoader::_calcStereocenters()
             if (_atoms[i].chirality == 2)
                 std::swap(pyramid[0], pyramid[1]);
 
-            if (!isPossibleStereocenter(*_bmol, _mol, i, aromatic_stereo_context))
+            bool possible_stereocenter = _bmol->isPossibleStereocenter(i);
+            if (!possible_stereocenter && _atoms[i].aromatic)
+                possible_stereocenter = isPossibleAromaticStereocenter(_mol, i, aromatic_stereo_context);
+
+            if (!possible_stereocenter)
             {
                 if (!stereochemistry_options.ignore_errors)
                     throw Error("chirality not possible on atom #%d", i);
@@ -341,7 +346,11 @@ void SmilesLoader::_validateStereoCenters()
     for (int i = _bmol->stereocenters.begin(); i < _bmol->stereocenters.end(); i = _bmol->stereocenters.next(i))
     {
         auto atom_idx = _bmol->stereocenters.getAtomIndex(i);
-        if (isPossibleStereocenter(*_bmol, _mol, atom_idx, aromatic_stereo_context) || _bmol->stereocenters.isAtropisomeric(atom_idx))
+        bool possible_stereocenter = _bmol->isPossibleStereocenter(atom_idx);
+        if (!possible_stereocenter && _bmol->stereocenters.isTetrahydral(atom_idx))
+            possible_stereocenter = isPossibleAromaticStereocenter(_mol, atom_idx, aromatic_stereo_context);
+
+        if (possible_stereocenter || _bmol->stereocenters.isAtropisomeric(atom_idx))
             continue;
         if (!stereochemistry_options.ignore_errors)
             throw Error("atom %d is not a stereocenter", atom_idx);

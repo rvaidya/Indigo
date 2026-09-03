@@ -221,7 +221,7 @@ namespace
     }
 } // namespace
 
-void SmilesLoader::_calcStereocenters()
+void SmilesLoader::_calcStereocenters(Array<int>& aromatic_stereo_centers)
 {
     int i, j;
     AromaticStereoValidationContext aromatic_stereo_context;
@@ -369,8 +369,12 @@ void SmilesLoader::_calcStereocenters()
                 std::swap(pyramid[0], pyramid[1]);
 
             bool possible_stereocenter = _bmol->isPossibleStereocenter(i);
+            bool aromatic_fallback = false;
             if (!possible_stereocenter && _atoms[i].aromatic)
+            {
                 possible_stereocenter = isPossibleAromaticStereocenter(_mol, i, aromatic_stereo_context);
+                aromatic_fallback = possible_stereocenter;
+            }
 
             if (!possible_stereocenter)
             {
@@ -380,6 +384,8 @@ void SmilesLoader::_calcStereocenters()
             }
 
             _bmol->addStereocenters(i, MoleculeStereocenters::ATOM_ABS, 0, pyramid);
+            if (aromatic_fallback)
+                aromatic_stereo_centers.push(i);
         }
     }
 }
@@ -407,28 +413,22 @@ void SmilesLoader::_calcCisTrans()
     }
 }
 
-void SmilesLoader::_validateStereoCenters(int stereo_validation_revision)
+void SmilesLoader::_validateStereoCenters(int stereo_validation_revision, const Array<int>& aromatic_stereo_centers)
 {
     const bool molecule_changed_after_stereo_validation = _bmol->getEditRevision() != stereo_validation_revision;
     AromaticStereoValidationContext aromatic_stereo_context;
+    Array<int> invalid_aromatic_stereo_centers;
 
     for (int i = _bmol->stereocenters.begin(); i < _bmol->stereocenters.end(); i = _bmol->stereocenters.next(i))
     {
         auto atom_idx = _bmol->stereocenters.getAtomIndex(i);
         bool possible_stereocenter = _bmol->isPossibleStereocenter(atom_idx);
+        const bool aromatic_fallback = aromatic_stereo_centers.find(atom_idx) >= 0;
 
-        // Explicit aromatic @/@@ centers were fully validated in
-        // _calcStereocenters(). If later CX/CurlySMILES processing edited the
-        // molecule, validate them again against the final chemistry. Otherwise
-        // reuse the successful validation and avoid a second dearomatization pass.
-        // CX stereo-group-only entries have no explicit chirality and therefore do
-        // not cross this fallback boundary.
-        const bool explicit_aromatic_stereocenter =
-            !possible_stereocenter && _bmol->stereocenters.isTetrahydral(atom_idx) && _mol != nullptr && atom_idx >= 0 &&
-            atom_idx < _atoms.size() && _atoms[atom_idx].chirality > 0 && _atoms[atom_idx].aromatic &&
-            _mol->getAtomAromaticity(atom_idx) == ATOM_AROMATIC;
-
-        if (explicit_aromatic_stereocenter)
+        // Centers recorded here were fully validated against the base aromatic
+        // SMILES in _calcStereocenters(). Reuse that result if the molecule is
+        // unchanged; otherwise validate against the final CX/CurlySMILES chemistry.
+        if (!possible_stereocenter && aromatic_fallback)
         {
             if (molecule_changed_after_stereo_validation)
                 possible_stereocenter = isPossibleAromaticStereocenter(_mol, atom_idx, aromatic_stereo_context);
@@ -438,11 +438,19 @@ void SmilesLoader::_validateStereoCenters(int stereo_validation_revision)
 
         if (possible_stereocenter || _bmol->stereocenters.isAtropisomeric(atom_idx))
             continue;
+
         if (!stereochemistry_options.ignore_errors)
             throw Error("atom %d is not a stereocenter", atom_idx);
-    }
-}
 
+        // Match _calcStereocenters() ignore-errors behavior: an explicit
+        // aromatic center that is no longer valid must not survive as stale stereo.
+        if (aromatic_fallback)
+            invalid_aromatic_stereo_centers.push(atom_idx);
+    }
+
+    for (int i = 0; i < invalid_aromatic_stereo_centers.size(); i++)
+        _bmol->stereocenters.remove(invalid_aromatic_stereo_centers[i]);
+}
 void SmilesLoader::_addExplicitHForStereo()
 {
     for (int i = 0; i < _atoms.size(); i++)

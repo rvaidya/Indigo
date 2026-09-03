@@ -186,7 +186,8 @@ void SmilesLoader::_loadParsedMolecule()
         // or add required number of "any atom" ligands
         _addLigandsForStereo();
 
-    _calcStereocenters();
+    Array<int> aromatic_stereo_centers;
+    _calcStereocenters(aromatic_stereo_centers);
     _calcCisTrans();
 
     // The aromatic @/@@ fallback has been fully validated for the base SMILES at
@@ -256,7 +257,7 @@ void SmilesLoader::_loadParsedMolecule()
     for (i = 0; i < _polymer_repetitions.size(); i++)
         _handlePolymerRepetition(i);
 
-    _validateStereoCenters(stereo_validation_revision);
+    _validateStereoCenters(stereo_validation_revision, aromatic_stereo_centers);
 }
 
 void SmilesLoader::_markAromaticBonds()

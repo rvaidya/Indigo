@@ -94,3 +94,15 @@ except IndigoException:
     pass
 else:
     raise AssertionError("CX-mutated aromatic stereocenter was accepted")
+
+
+# Tolerant loading must not retain stereo that final CX chemistry invalidates.
+indigo.setOption("ignore-stereochemistry-errors", True)
+try:
+    cx_ignored = indigo.loadMolecule(cx_mutated_center)
+finally:
+    indigo.setOption("ignore-stereochemistry-errors", False)
+
+ignored_stereo = [atom.index() for atom in cx_ignored.iterateStereocenters()]
+assert 4 not in ignored_stereo
+assert len(ignored_stereo) == original_stereo - 1

@@ -86,7 +86,7 @@ else:
 
 # CX atom labels are applied after the base SMILES stereocenters are constructed.
 # Replacing the validated aromatic sulfur with an R-site must invalidate the
-# provisional center rather than trusting the pre-CX chemistry.
+# existing center rather than trusting the pre-CX chemistry.
 cx_mutated_center = expected_aromatic + " |$;;;;_R1$|"
 try:
     indigo.loadMolecule(cx_mutated_center)

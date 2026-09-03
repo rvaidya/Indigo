@@ -42,3 +42,14 @@ except IndigoException:
     pass
 else:
     raise AssertionError("invalid aromatic carbon chirality was accepted")
+
+
+cx_group_only = expected_aromatic.replace("[s@@]", "[s]") + " |a:4|"
+try:
+    indigo.loadMolecule(cx_group_only)
+except IndigoException:
+    pass
+else:
+    raise AssertionError(
+        "CX stereo group without explicit tetrahedral chirality was accepted"
+    )

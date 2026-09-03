@@ -27,6 +27,16 @@ original_stereo = len([atom for atom in mol.iterateStereocenters()])
 roundtrip_stereo = len([atom for atom in roundtrip.iterateStereocenters()])
 assert roundtrip_stereo == original_stereo
 
+
+# Multiple explicit aromatic stereocenters must be validated in one load without
+# losing either center or depending on component order.
+multi_aromatic = expected_aromatic + "." + expected_aromatic
+multi = indigo.loadMolecule(multi_aromatic)
+multi_saved = multi.canonicalSmiles()
+multi_roundtrip = indigo.loadMolecule(multi_saved)
+assert len([atom for atom in multi.iterateStereocenters()]) == original_stereo * 2
+assert len([atom for atom in multi_roundtrip.iterateStereocenters()]) == original_stereo * 2
+
 connectivity_source = "CC1C(S2=NC(=NS1=N2)C(F)(F)F)C"
 connectivity = indigo.loadMolecule(connectivity_source)
 connectivity.dearomatize()
@@ -36,12 +46,19 @@ connectivity_aromatic = connectivity.canonicalSmiles()
 connectivity_roundtrip = indigo.loadMolecule(connectivity_aromatic)
 assert connectivity_roundtrip.canonicalSmiles() == connectivity_aromatic
 
-try:
-    indigo.loadMolecule("C[c@]1ccccc1")
-except IndigoException:
-    pass
-else:
-    raise AssertionError("invalid aromatic carbon chirality was accepted")
+invalid_aromatic = "C[c@]1ccccc1"
+
+for invalid in (
+    invalid_aromatic,
+    invalid_aromatic + "." + expected_aromatic,
+    expected_aromatic + "." + invalid_aromatic,
+):
+    try:
+        indigo.loadMolecule(invalid)
+    except IndigoException:
+        pass
+    else:
+        raise AssertionError("invalid aromatic carbon chirality was accepted")
 
 
 cx_group_only = expected_aromatic.replace("[s@@]", "[s]") + " |a:4|"

@@ -27,6 +27,10 @@ original_stereo = len([atom for atom in mol.iterateStereocenters()])
 roundtrip_stereo = len([atom for atom in roundtrip.iterateStereocenters()])
 assert roundtrip_stereo == original_stereo
 
+# Benign CX stereo metadata must preserve the explicitly chiral aromatic center.
+cx_explicit_group = indigo.loadMolecule(expected_aromatic + " |a:4|")
+assert len([atom for atom in cx_explicit_group.iterateStereocenters()]) == original_stereo
+
 
 # Multiple explicit aromatic stereocenters must be validated in one load without
 # losing either center or depending on component order.
@@ -70,3 +74,15 @@ else:
     raise AssertionError(
         "CX stereo group without explicit tetrahedral chirality was accepted"
     )
+
+
+# CX atom labels are applied after the base SMILES stereocenters are constructed.
+# Replacing the validated aromatic sulfur with an R-site must invalidate the
+# provisional center rather than trusting the pre-CX chemistry.
+cx_mutated_center = expected_aromatic + " |$;;;;_R1$|"
+try:
+    indigo.loadMolecule(cx_mutated_center)
+except IndigoException:
+    pass
+else:
+    raise AssertionError("CX-mutated aromatic stereocenter was accepted")

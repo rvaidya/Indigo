@@ -224,7 +224,6 @@ namespace
 void SmilesLoader::_calcStereocenters()
 {
     int i, j;
-    AromaticStereoValidationContext aromatic_stereo_context;
 
     for (i = 0; i < _atoms.size(); i++)
     {
@@ -370,7 +369,14 @@ void SmilesLoader::_calcStereocenters()
 
             bool possible_stereocenter = _bmol->isPossibleStereocenter(i);
             if (!possible_stereocenter && _atoms[i].aromatic)
-                possible_stereocenter = isPossibleAromaticStereocenter(_mol, i, aromatic_stereo_context);
+            {
+                // Aromatic @/@@ centers cannot be validated against aromatic bond
+                // orders directly. Do only the local feasibility check here so the
+                // stereocenter can be constructed. Full-molecule Kekule feasibility
+                // is validated once, after CX/CurlySMILES processing is complete.
+                AromaticStereoCenterCandidates center;
+                possible_stereocenter = collectAromaticStereoCenterCandidates(_mol, i, center);
+            }
 
             if (!possible_stereocenter)
             {
@@ -409,25 +415,41 @@ void SmilesLoader::_calcCisTrans()
 
 void SmilesLoader::_validateStereoCenters()
 {
+    AromaticStereoValidationContext aromatic_stereo_context;
+    Array<int> invalid_aromatic_centers;
+
     for (int i = _bmol->stereocenters.begin(); i < _bmol->stereocenters.end(); i = _bmol->stereocenters.next(i))
     {
         auto atom_idx = _bmol->stereocenters.getAtomIndex(i);
         bool possible_stereocenter = _bmol->isPossibleStereocenter(atom_idx);
 
-        // Explicit aromatic @/@@ centers were already validated, including joint
-        // Kekule feasibility, in _calcStereocenters(). Do not enumerate the same
-        // dearomatizations again here. CX stereo-group-only entries have no
-        // explicit chirality and therefore do not cross this validation boundary.
-        if (!possible_stereocenter && _bmol->stereocenters.isTetrahydral(atom_idx) && _mol != nullptr && atom_idx >= 0 &&
-            atom_idx < _atoms.size() && _atoms[atom_idx].chirality > 0 && _atoms[atom_idx].aromatic &&
-            _mol->getAtomAromaticity(atom_idx) == ATOM_AROMATIC)
-            possible_stereocenter = true;
+        // Validate explicit aromatic @/@@ centers against the final molecule, after
+        // CX/CurlySMILES processing may have changed atom or bond chemistry. One
+        // shared context keeps all such centers jointly compatible with a single
+        // full-molecule Kekule assignment. CX stereo-group-only entries have no
+        // explicit chirality and do not cross this fallback boundary.
+        const bool explicit_aromatic_stereocenter =
+            !possible_stereocenter && _bmol->stereocenters.isTetrahydral(atom_idx) && _mol != nullptr && atom_idx >= 0 &&
+            atom_idx < _atoms.size() && _atoms[atom_idx].chirality > 0 && _atoms[atom_idx].aromatic;
+
+        if (explicit_aromatic_stereocenter)
+            possible_stereocenter = isPossibleAromaticStereocenter(_mol, atom_idx, aromatic_stereo_context);
 
         if (possible_stereocenter || _bmol->stereocenters.isAtropisomeric(atom_idx))
             continue;
+
         if (!stereochemistry_options.ignore_errors)
             throw Error("atom %d is not a stereocenter", atom_idx);
+
+        // _calcStereocenters() provisionally adds explicit aromatic centers after
+        // only a local feasibility check. Preserve ignore_errors semantics by
+        // removing one that fails the final full-molecule validation.
+        if (explicit_aromatic_stereocenter)
+            invalid_aromatic_centers.push(atom_idx);
     }
+
+    for (int i = 0; i < invalid_aromatic_centers.size(); i++)
+        _bmol->stereocenters.remove(invalid_aromatic_centers[i]);
 }
 
 void SmilesLoader::_addExplicitHForStereo()

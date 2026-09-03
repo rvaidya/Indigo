@@ -427,7 +427,7 @@ void SmilesLoader::_validateStereoCenters(int stereo_validation_revision, const 
 
         // Centers recorded here were fully validated against the base aromatic
         // SMILES in _calcStereocenters(). Reuse that result if the molecule is
-        // unchanged; otherwise validate against the final CX/CurlySMILES chemistry.
+        // unchanged; otherwise validate against the final molecule chemistry.
         if (!possible_stereocenter && aromatic_fallback)
         {
             if (molecule_changed_after_stereo_validation)
@@ -451,6 +451,7 @@ void SmilesLoader::_validateStereoCenters(int stereo_validation_revision, const 
     for (int i = 0; i < invalid_aromatic_stereo_centers.size(); i++)
         _bmol->stereocenters.remove(invalid_aromatic_stereo_centers[i]);
 }
+
 void SmilesLoader::_addExplicitHForStereo()
 {
     for (int i = 0; i < _atoms.size(); i++)

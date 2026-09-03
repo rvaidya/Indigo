@@ -191,8 +191,8 @@ void SmilesLoader::_loadParsedMolecule()
     _calcCisTrans();
 
     // The aromatic @/@@ fallback has been fully validated for the base SMILES at
-    // this point. Any later molecule edit requires validation against final
-    // CX/CurlySMILES chemistry before the load can succeed.
+    // this point. Any later molecule edit requires validation against the final
+    // molecule chemistry before the load can succeed.
     const int stereo_validation_revision = _bmol->getEditRevision();
 
     _scanner.skipSpace();

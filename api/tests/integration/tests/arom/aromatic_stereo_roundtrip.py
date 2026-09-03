@@ -84,6 +84,10 @@ curly_repeated = expected_aromatic.replace("C[C@H]1", "C{-}[C@H]1", 1) + "{+nn=2
 curly = indigo.loadMolecule(curly_repeated)
 assert len([atom for atom in curly.iterateStereocenters()]) == original_stereo * 2
 
+curly_repeated_three = curly_repeated.replace("{+nn=2}", "{+nn=3}")
+curly_three = indigo.loadMolecule(curly_repeated_three)
+assert len([atom for atom in curly_three.iterateStereocenters()]) == original_stereo * 3
+
 indigo.setOption("ignore-stereochemistry-errors", True)
 try:
     curly_tolerant = indigo.loadMolecule(curly_repeated)

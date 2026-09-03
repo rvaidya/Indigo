@@ -77,6 +77,21 @@ multi_roundtrip = indigo.loadMolecule(multi_saved)
 assert len([atom for atom in multi.iterateStereocenters()]) == original_stereo * 2
 assert len([atom for atom in multi_roundtrip.iterateStereocenters()]) == original_stereo * 2
 
+# Finite CurlySMILES repetition copies stereocenters through a submolecule
+# mapping. Aromatic fallback provenance must follow those copied centers so the
+# final validator checks them instead of rejecting or silently bypassing them.
+curly_repeated = expected_aromatic.replace("C[C@H]1", "C{-}[C@H]1", 1) + "{+nn=2}"
+curly = indigo.loadMolecule(curly_repeated)
+assert len([atom for atom in curly.iterateStereocenters()]) == original_stereo * 2
+
+indigo.setOption("ignore-stereochemistry-errors", True)
+try:
+    curly_tolerant = indigo.loadMolecule(curly_repeated)
+finally:
+    indigo.setOption("ignore-stereochemistry-errors", False)
+
+assert len([atom for atom in curly_tolerant.iterateStereocenters()]) == original_stereo * 2
+
 connectivity_source = "CC1C(S2=NC(=NS1=N2)C(F)(F)F)C"
 connectivity = indigo.loadMolecule(connectivity_source)
 connectivity.dearomatize()

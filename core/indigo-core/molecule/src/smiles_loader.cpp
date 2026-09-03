@@ -255,7 +255,7 @@ void SmilesLoader::_loadParsedMolecule()
 
     // handle the polymers (part of the CurlySMILES specification)
     for (i = 0; i < _polymer_repetitions.size(); i++)
-        _handlePolymerRepetition(i);
+        _handlePolymerRepetition(i, aromatic_stereo_centers);
 
     _validateStereoCenters(stereo_validation_revision, aromatic_stereo_centers);
 }

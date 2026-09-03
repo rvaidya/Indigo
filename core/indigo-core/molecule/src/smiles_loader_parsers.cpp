@@ -1657,7 +1657,7 @@ void SmilesLoader::_handleCurlyBrace(_AtomDesc& atom, bool& inside_polymer)
     }
 }
 
-void SmilesLoader::_handlePolymerRepetition(int i)
+void SmilesLoader::_handlePolymerRepetition(int i, Array<int>& aromatic_stereo_centers)
 {
     int j, start = -1, end = -1;
     int start_bond = -1, end_bond = -1;
@@ -1745,10 +1745,25 @@ void SmilesLoader::_handlePolymerRepetition(int i)
         int rep_start = mapping[start];
         int rep_end = mapping[end];
 
+        Array<int> repeated_aromatic_stereo_centers;
+        for (j = 0; j < aromatic_stereo_centers.size(); j++)
+        {
+            const int atom_idx = aromatic_stereo_centers[j];
+            if (atom_idx >= 0 && atom_idx < mapping.size() && mapping[atom_idx] >= 0)
+                repeated_aromatic_stereo_centers.push(mapping[atom_idx]);
+        }
+
         // already have one instance of the sgroup; add repetitions if they exist
         for (j = 0; j < _polymer_repetitions[i] - 1; j++)
         {
             _bmol->mergeWithMolecule(*rep, &mapping, 0);
+
+            for (int k = 0; k < repeated_aromatic_stereo_centers.size(); k++)
+            {
+                const int repeated_atom_idx = repeated_aromatic_stereo_centers[k];
+                if (repeated_atom_idx >= 0 && repeated_atom_idx < mapping.size() && mapping[repeated_atom_idx] >= 0)
+                    aromatic_stereo_centers.push(mapping[repeated_atom_idx]);
+            }
 
             int k;
 

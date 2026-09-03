@@ -32,6 +32,14 @@ cx_explicit_group = indigo.loadMolecule(expected_aromatic + " |a:4|")
 assert len([atom for atom in cx_explicit_group.iterateStereocenters()]) == original_stereo
 
 
+# A chemistry edit in another component must trigger final revalidation without
+# invalidating an aromatic center whose own chemistry is unchanged. The aromatic
+# component has atoms 0-13; the appended star is atom 14 and becomes an R-site.
+cx_unrelated_rsite = expected_aromatic + ".[*] |$" + ";" * 14 + "_R1$|"
+cx_unrelated = indigo.loadMolecule(cx_unrelated_rsite)
+assert len([atom for atom in cx_unrelated.iterateStereocenters()]) == original_stereo
+
+
 # Multiple explicit aromatic stereocenters must be validated in one load without
 # losing either center or depending on component order.
 multi_aromatic = expected_aromatic + "." + expected_aromatic

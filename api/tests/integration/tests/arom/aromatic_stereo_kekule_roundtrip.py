@@ -122,11 +122,6 @@ p_aromatic = p_molecule.canonicalSmiles()
 assert p_aromatic == PUBCHEM_P_AROMATIC
 assert_canonical_roundtrip(PUBCHEM_P_AROMATIC, p_stereo)
 
-p_without_stereo = Indigo().loadMolecule(PUBCHEM_P_AROMATIC)
-p_without_stereo.clearStereocenters()
-p_without_stereo.dearomatize()
-assert p_without_stereo.canonicalSmiles() == p_source_canonical
-
 # Both parities must remain distinct and independently stable.
 s_opposite = PUBCHEM_S_AROMATIC.replace("[s@@]", "[s@]", 1)
 p_opposite = PUBCHEM_P_AROMATIC.replace("[p@]", "[p@@]", 1)
@@ -139,6 +134,8 @@ assert assert_canonical_roundtrip(p_opposite, p_stereo) != p_aromatic
 for p_variant in (PUBCHEM_P_AROMATIC, p_opposite):
     p_variant_without_stereo = Indigo().loadMolecule(p_variant)
     p_variant_without_stereo.clearStereocenters()
+    assert p_variant_without_stereo.canonicalSmiles() == p_source_aromatic
+
     p_variant_without_stereo.dearomatize()
     assert p_variant_without_stereo.canonicalSmiles() == p_source_canonical
 

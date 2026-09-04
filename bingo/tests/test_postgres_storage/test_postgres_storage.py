@@ -14,6 +14,14 @@ SHADOW_HASH_TABLE = f"{BINGO_INDEX}_shadow_hash"
 PRODUCTION_UPDATE_VALUE = "O=C1c2ccccc2N=NN1COc1cc(Cl)c(F)cc1"
 INVALID_SMILES = "C1CC"
 VALID_EXACT_SMILES = "CCO"
+AROMATIC_STEREO_SMILES = (
+    "C[C@H]1[C@@H](C)[s@@]2[n]c([n][s]1[n]2)C(F)(F)F",
+    "CN(C)[p@]1(F)[n][p](F)(F)[n][p]([n]1)(N(C)C)N(C)C",
+)
+INVALID_AROMATIC_STEREO_SMILES = (
+    "C[n@]1cccc1",
+    "C[n@@]1cccc1",
+)
 
 
 def _connect(config):
@@ -205,6 +213,64 @@ def postgres_storage(request):
                 (original_nthreads,),
             )
         connection.close()
+
+
+def test_aromatic_stereo_roundtrip_crosses_bingo_sql_and_index_paths(
+    postgres_storage,
+):
+    connection, _ = postgres_storage
+    _reset_schema(connection, rows=0, create_bingo_index=False)
+
+    canonical_by_input = {}
+    with connection.cursor() as cursor:
+        for smiles in AROMATIC_STEREO_SMILES:
+            cursor.execute(
+                "SELECT bingo.checkmolecule(%s), bingo.cansmiles(%s)",
+                (smiles, smiles),
+            )
+            error, canonical = cursor.fetchone()
+            assert error is None
+            assert canonical
+            canonical_by_input[smiles] = canonical
+
+            # Bingo must also consume its own canonical output. This is the
+            # database-side form of the Indigo serializer/loader contract.
+            cursor.execute("SELECT bingo.checkmolecule(%s)", (canonical,))
+            assert cursor.fetchone()[0] is None
+
+            cursor.execute(
+                f"""
+                INSERT INTO {TABLE} (smiles_isomeric, smiles_indigo)
+                VALUES (%s, %s)
+                """,
+                (smiles, canonical),
+            )
+
+        for invalid in INVALID_AROMATIC_STEREO_SMILES:
+            cursor.execute("SELECT bingo.checkmolecule(%s)", (invalid,))
+            assert cursor.fetchone()[0] is not None
+
+        # Mirror the production partial canonical-SMILES expression index. Its
+        # build reevaluates both checkmolecule() and cansmiles() for every row.
+        cursor.execute(f"""
+            CREATE INDEX structures_cansmiles_bingo
+            ON {TABLE} (bingo.cansmiles(smiles_isomeric))
+            WHERE bingo.checkmolecule(smiles_isomeric) IS NULL
+            """)
+
+    _create_bingo_index(connection, nthreads=-1)
+
+    for smiles, canonical in canonical_by_input.items():
+        _assert_exact_count(connection, smiles, 1)
+        _assert_exact_count(connection, canonical, 1)
+
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT count(*)
+            FROM {TABLE}
+            WHERE bingo.checkmolecule(smiles_isomeric) IS NULL
+        """)
+        assert cursor.fetchone()[0] == len(AROMATIC_STEREO_SMILES)
 
 
 def test_non_hot_update_vacuum_and_reindex_preserve_bingo_results(

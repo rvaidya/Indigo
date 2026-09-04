@@ -14,8 +14,13 @@ source = "C[C@@H]1[C@@H](S2=N[S@]1=NC(=N2)C(F)(F)F)C"
 expected_aromatic = "C[C@H]1[C@@H](C)[s@@]2[n]c([n][s]1[n]2)C(F)(F)F"
 
 mol = indigo.loadMolecule(source)
+source_canonical = mol.canonicalSmiles()
+original_stereo = len([atom for atom in mol.iterateStereocenters()])
+
 mol.dearomatize()
+assert len([atom for atom in mol.iterateStereocenters()]) == original_stereo
 mol.aromatize()
+assert len([atom for atom in mol.iterateStereocenters()]) == original_stereo
 
 aromatic = mol.canonicalSmiles()
 assert aromatic == expected_aromatic
@@ -23,9 +28,13 @@ assert aromatic == expected_aromatic
 roundtrip = indigo.loadMolecule(aromatic)
 assert roundtrip.canonicalSmiles() == aromatic
 
-original_stereo = len([atom for atom in mol.iterateStereocenters()])
 roundtrip_stereo = len([atom for atom in roundtrip.iterateStereocenters()])
 assert roundtrip_stereo == original_stereo
+
+roundtrip_dearomatized = indigo.loadMolecule(aromatic)
+roundtrip_dearomatized.dearomatize()
+assert len([atom for atom in roundtrip_dearomatized.iterateStereocenters()]) == original_stereo
+assert roundtrip_dearomatized.canonicalSmiles() == source_canonical
 
 # The opposite sulfur parity must remain a distinct stereoisomer and round-trip.
 opposite_aromatic = expected_aromatic.replace("[s@@]", "[s@]", 1)
@@ -76,6 +85,7 @@ multi_saved = multi.canonicalSmiles()
 multi_roundtrip = indigo.loadMolecule(multi_saved)
 assert len([atom for atom in multi.iterateStereocenters()]) == original_stereo * 2
 assert len([atom for atom in multi_roundtrip.iterateStereocenters()]) == original_stereo * 2
+assert multi_roundtrip.canonicalSmiles() == multi_saved
 
 # Finite CurlySMILES repetition copies stereocenters through a submolecule
 # mapping. Aromatic fallback provenance must follow those copied centers so the
@@ -83,10 +93,18 @@ assert len([atom for atom in multi_roundtrip.iterateStereocenters()]) == origina
 curly_repeated = expected_aromatic.replace("C[C@H]1", "C{-}[C@H]1", 1) + "{+nn=2}"
 curly = indigo.loadMolecule(curly_repeated)
 assert len([atom for atom in curly.iterateStereocenters()]) == original_stereo * 2
+curly_saved = curly.canonicalSmiles()
+curly_roundtrip = indigo.loadMolecule(curly_saved)
+assert len([atom for atom in curly_roundtrip.iterateStereocenters()]) == original_stereo * 2
+assert curly_roundtrip.canonicalSmiles() == curly_saved
 
 curly_repeated_three = curly_repeated.replace("{+nn=2}", "{+nn=3}")
 curly_three = indigo.loadMolecule(curly_repeated_three)
 assert len([atom for atom in curly_three.iterateStereocenters()]) == original_stereo * 3
+curly_three_saved = curly_three.canonicalSmiles()
+curly_three_roundtrip = indigo.loadMolecule(curly_three_saved)
+assert len([atom for atom in curly_three_roundtrip.iterateStereocenters()]) == original_stereo * 3
+assert curly_three_roundtrip.canonicalSmiles() == curly_three_saved
 
 indigo.setOption("ignore-stereochemistry-errors", True)
 try:
@@ -130,6 +148,39 @@ finally:
 
 for molecule in tolerant_aromatic_n:
     assert len([atom for atom in molecule.iterateStereocenters()]) == 0
+
+# An unrelated neutral aromatic nitrogen component must not interfere with the
+# valid sulfur fallback, regardless of component order.
+for combined in (
+    expected_aromatic + "." + neutral_aromatic_n,
+    neutral_aromatic_n + "." + expected_aromatic,
+):
+    combined_molecule = indigo.loadMolecule(combined)
+    combined_saved = combined_molecule.canonicalSmiles()
+    assert len([atom for atom in combined_molecule.iterateStereocenters()]) == original_stereo
+    combined_roundtrip = indigo.loadMolecule(combined_saved)
+    assert len([atom for atom in combined_roundtrip.iterateStereocenters()]) == original_stereo
+    assert combined_roundtrip.canonicalSmiles() == combined_saved
+
+# In tolerant mode an invalid aromatic N center must disappear while the valid
+# sulfur stereo survives, in either component order. The sanitized save must
+# then reload strictly with the same stereo state.
+mixed_tolerant_inputs = (
+    expected_aromatic + "." + invalid_aromatic_n[0],
+    invalid_aromatic_n[0] + "." + expected_aromatic,
+)
+indigo.setOption("ignore-stereochemistry-errors", True)
+try:
+    mixed_tolerant = [indigo.loadMolecule(value) for value in mixed_tolerant_inputs]
+finally:
+    indigo.setOption("ignore-stereochemistry-errors", False)
+
+for molecule in mixed_tolerant:
+    assert len([atom for atom in molecule.iterateStereocenters()]) == original_stereo
+    mixed_saved = molecule.canonicalSmiles()
+    mixed_roundtrip = indigo.loadMolecule(mixed_saved)
+    assert len([atom for atom in mixed_roundtrip.iterateStereocenters()]) == original_stereo
+    assert mixed_roundtrip.canonicalSmiles() == mixed_saved
 
 for invalid in (
     invalid_aromatic,

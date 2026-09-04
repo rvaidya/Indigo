@@ -187,11 +187,12 @@ producer_configuration_sources = (
 for _, source, marker in producer_configuration_sources:
     assert_aromatic_serializer_contract(source, marker)
 
-# The remaining ordinary stereocenter-table configurations can be made locally
-# plausible by assigning incident aromatic bonds single/double, but they do not
-# have a globally valid Indigo aromatic/Kekule realization in these fixtures.
-# Exercise both strict rejection and tolerant stereo removal so broadening the
-# generic fallback cannot silently legalize them.
+# These topology-specific fixtures can be made locally plausible by assigning
+# incident aromatic bonds single/double, but they do not have a globally valid
+# Indigo aromatic/Kekule realization as drawn. Exercise both strict rejection
+# and tolerant stereo removal so broadening the generic fallback cannot silently
+# legalize them. A stereocenter-table configuration can still have a valid
+# aromatic realization in a different topology (P+ is exercised below).
 globally_incompatible_configurations = (
     ("C neutral degree 3 / 0 double", "C[c@]1cc(C)ccc1"),
     (
@@ -228,16 +229,25 @@ for invalid in (
     assert_strict_rejects(invalid)
     assert_tolerant_omits_stereo(invalid)
 
-# The same ordinary N degree-3 configuration can be valid in an asymmetric
-# pyrrole-like producer fixture above but invalid when the two ring paths are
-# symmetry-equivalent. The generic fallback must not turn configuration-table
-# eligibility into unconditional acceptance.
-for invalid in (
+# Direct aromatic forms exercise loader compatibility independently of the
+# producer fixtures above. The five-member neutral-N case is a valid
+# pyrrole-like realization under Indigo's existing models; both parities must
+# reload without the original aromatic-bond stereocenter failure.
+for valid in (
     "C[n@]1cccc1",
     "C[n@@]1cccc1",
 ):
-    assert_strict_rejects(invalid)
-    assert_tolerant_omits_stereo(invalid)
+    assert_canonical_roundtrip(valid, 1)
+
+# Rev1 already covered the corresponding five-member P+ configuration. Keep it
+# as a positive direct-aromatic regression: the six-member P+ fixture in the
+# incompatibility matrix above is deliberately topology-specific and must still
+# reject because no compatible Kekule assignment exists there.
+for valid in (
+    "C[p@+]1(F)cccc1",
+    "C[p@@+]1(F)cccc1",
+):
+    assert_canonical_roundtrip(valid, 1)
 
 # In tolerant mode an invalid aromatic center must be omitted without removing
 # a valid fallback center in another component. The sanitized result must then

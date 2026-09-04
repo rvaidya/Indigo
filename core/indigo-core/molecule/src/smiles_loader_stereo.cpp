@@ -89,6 +89,13 @@ namespace
         if (atom_number != ELEM_P && atom_number != ELEM_S && atom_number != ELEM_As)
             return false;
 
+        // Ordinary tetrahedral centers in Indigo have three or four neighbors.
+        // Enforce that universal bound before enumerating aromatic bond-order
+        // masks so malformed overcoordinated atoms cannot create an unsafe
+        // shift or combinatorial expansion.
+        if (vertex.degree() <= 2 || vertex.degree() > 4)
+            return false;
+
         // The existing stereocenter table does not define radical
         // configurations. Unknown radical/valence state must fail closed
         // rather than broadening the compatibility fallback.

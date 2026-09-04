@@ -77,35 +77,42 @@ namespace
             return false;
 
         const Vertex& vertex = mol->getVertex(atom_idx);
+        const int atom_number = mol->getAtomNumber(atom_idx);
 
-        // This fallback is intentionally limited to the neutral, degree-3
-        // aromatic sulfur configuration that Indigo can emit for the PubChem
-        // round-trip case. Do not generalize ordinary tetrahedral rules to
-        // arbitrary aromatic elements.
-        if (mol->getAtomNumber(atom_idx) != ELEM_S || mol->getAtomCharge(atom_idx) != 0 || mol->getAtomRadical_NoThrow(atom_idx, -1) != 0 ||
-            vertex.degree() != 3)
+        // Aromatic tetrahedral fallback is reserved for heavy elements for
+        // which Indigo both writes lowercase aromatic SMILES and already has
+        // explicit tetrahedral stereocenter configurations. Carbon and
+        // nitrogen are deliberately excluded: applying their ordinary
+        // stereocenter rules to aromatic atoms can legalize invalid forms such
+        // as C[n@]1cccc1. Selenium has no corresponding Indigo tetrahedral
+        // configuration.
+        if (atom_number != ELEM_P && atom_number != ELEM_S && atom_number != ELEM_As)
+            return false;
+
+        // The existing stereocenter table does not define radical
+        // configurations. Unknown radical/valence state must fail closed
+        // rather than broadening the compatibility fallback.
+        if (mol->getAtomRadical_NoThrow(atom_idx, -1) != 0)
             return false;
 
         Array<int> vertices;
         Array<int> aromatic_bonds;
         vertices.push(atom_idx);
 
-        int non_aromatic_single_bonds = 0;
         for (int i = vertex.neiBegin(); i != vertex.neiEnd(); i = vertex.neiNext(i))
         {
             const int edge_idx = vertex.neiEdge(i);
-            const int bond_order = mol->getBondOrder(edge_idx);
 
             vertices.push(vertex.neiVertex(i));
-            if (bond_order == BOND_AROMATIC)
+            if (mol->getBondOrder(edge_idx) == BOND_AROMATIC)
                 aromatic_bonds.push(edge_idx);
-            else if (bond_order == BOND_SINGLE)
-                non_aromatic_single_bonds++;
-            else
-                return false;
         }
 
-        if (aromatic_bonds.size() != 2 || non_aromatic_single_bonds != 1)
+        // A saver-produced aromatic stereocenter must participate in an
+        // aromatic system. The local assignments below deliberately do not
+        // duplicate charge, degree, or bond-order chemistry from
+        // MoleculeStereocenters::isPossibleStereocenter().
+        if (aromatic_bonds.size() < 2)
             return false;
 
         Molecule local;

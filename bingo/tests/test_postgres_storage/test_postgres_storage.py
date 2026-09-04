@@ -8,12 +8,20 @@ from ..dbc.base import get_config
 
 SCHEMA = "bingo_pg_storage_regression"
 TABLE = f"{SCHEMA}.structures"
-BINGO_INDEX = f"{SCHEMA}.structures_molecule_bingo"
+BINGO_INDEX_NAME = "structures_molecule_bingo"
+CANSMILES_INDEX_NAME = "structures_cansmiles_bingo"
+BINGO_INDEX = f"{SCHEMA}.{BINGO_INDEX_NAME}"
+CANSMILES_INDEX = f"{SCHEMA}.{CANSMILES_INDEX_NAME}"
 SHADOW_TABLE = f"{BINGO_INDEX}_shadow"
 SHADOW_HASH_TABLE = f"{BINGO_INDEX}_shadow_hash"
 PRODUCTION_UPDATE_VALUE = "O=C1c2ccccc2N=NN1COc1cc(Cl)c(F)cc1"
 INVALID_SMILES = "C1CC"
 VALID_EXACT_SMILES = "CCO"
+AROMATIC_STEREO_SMILES = (
+    "C[C@H]1[C@@H](C)[s@@]2[n]c([n][s]1[n]2)C(F)(F)F",
+    "CN(C)[p@]1(F)[n][p](F)(F)[n][p]([n]1)(N(C)C)N(C)C",
+)
+INVALID_AROMATIC_STEREO_SMILES = "C[c@]1cc(C)cc1"
 
 
 def _connect(config):
@@ -205,6 +213,119 @@ def postgres_storage(request):
                 (original_nthreads,),
             )
         connection.close()
+
+
+def test_aromatic_stereo_roundtrip_matches_production_index_paths(
+    postgres_storage,
+):
+    connection, _ = postgres_storage
+    _reset_schema(connection, rows=0, create_bingo_index=False)
+
+    canonical_by_input = {}
+    with connection.cursor() as cursor:
+        for smiles in AROMATIC_STEREO_SMILES:
+            cursor.execute(
+                "SELECT bingo.checkmolecule(%s), bingo.cansmiles(%s)",
+                (smiles, smiles),
+            )
+            error, canonical = cursor.fetchone()
+            assert error is None
+            assert canonical
+            canonical_by_input[smiles] = canonical
+
+            # Bingo must consume the canonical representation it just emitted.
+            cursor.execute("SELECT bingo.checkmolecule(%s)", (canonical,))
+            assert cursor.fetchone()[0] is None
+
+            cursor.execute(
+                f"""
+                INSERT INTO {TABLE} (smiles_isomeric, smiles_indigo)
+                VALUES (%s, %s)
+                """,
+                (smiles, canonical),
+            )
+
+        # Keep one globally impossible aromatic stereocenter in the heap. The
+        # production partial-index predicate must exclude it cleanly.
+        cursor.execute(
+            "SELECT bingo.checkmolecule(%s)",
+            (INVALID_AROMATIC_STEREO_SMILES,),
+        )
+        assert cursor.fetchone()[0] is not None
+        cursor.execute(
+            f"""
+            INSERT INTO {TABLE} (smiles_isomeric, smiles_indigo)
+            VALUES (%s, %s)
+            """,
+            (
+                INVALID_AROMATIC_STEREO_SMILES,
+                INVALID_AROMATIC_STEREO_SMILES,
+            ),
+        )
+
+        cursor.execute(f"""
+            CREATE INDEX {CANSMILES_INDEX_NAME}
+            ON {TABLE} (bingo.cansmiles(smiles_isomeric))
+            WHERE bingo.checkmolecule(smiles_isomeric) IS NULL
+            """)
+
+        cursor.execute(f"""
+            CREATE INDEX {BINGO_INDEX_NAME}
+            ON {TABLE}
+            USING bingo_idx (smiles_isomeric bingo.molecule)
+            WITH (NTHREADS = -1)
+            WHERE bingo.checkmolecule(smiles_isomeric) IS NULL
+            """)
+
+    assert _shadow_counts(connection)[0] == len(AROMATIC_STEREO_SMILES)
+    _assert_no_zero_pages(connection)
+
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT count(*)
+            FROM {TABLE}
+            WHERE bingo.checkmolecule(smiles_isomeric) IS NULL
+            """)
+        assert cursor.fetchone()[0] == len(AROMATIC_STEREO_SMILES)
+
+    def assert_indexed_results():
+        with connection.cursor() as cursor:
+            cursor.execute("SET enable_seqscan = off")
+            try:
+                for smiles, canonical in canonical_by_input.items():
+                    cursor.execute(
+                        f"""
+                        SELECT count(*)
+                        FROM {TABLE}
+                        WHERE bingo.checkmolecule(smiles_isomeric) IS NULL
+                          AND smiles_isomeric @ (%s, '')::bingo.exact
+                        """,
+                        (smiles,),
+                    )
+                    assert cursor.fetchone()[0] == 1
+
+                    cursor.execute(
+                        f"""
+                        SELECT count(*)
+                        FROM {TABLE}
+                        WHERE bingo.checkmolecule(smiles_isomeric) IS NULL
+                          AND bingo.cansmiles(smiles_isomeric) = %s
+                        """,
+                        (canonical,),
+                    )
+                    assert cursor.fetchone()[0] == 1
+            finally:
+                cursor.execute("SET enable_seqscan = on")
+
+    assert_indexed_results()
+
+    with connection.cursor() as cursor:
+        cursor.execute(f"REINDEX INDEX {CANSMILES_INDEX}")
+        cursor.execute(f"REINDEX INDEX {BINGO_INDEX}")
+
+    assert _shadow_counts(connection)[0] == len(AROMATIC_STEREO_SMILES)
+    _assert_no_zero_pages(connection)
+    assert_indexed_results()
 
 
 def test_non_hot_update_vacuum_and_reindex_preserve_bingo_results(

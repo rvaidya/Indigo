@@ -178,9 +178,9 @@ namespace indigo
         void _parseMolecule();
         int _readCycleNumber(int first_char);
         void _loadParsedMolecule();
-        void _validateStereoCenters();
+        void _validateStereoCenters(int stereo_validation_revision, const Array<int>& aromatic_stereo_centers);
 
-        void _calcStereocenters();
+        void _calcStereocenters(Array<int>& aromatic_stereo_centers);
         void _calcCisTrans();
         void _readOtherStuff();
         void _markAromaticBonds();
@@ -190,7 +190,7 @@ namespace indigo
         void _addLigandsForStereo();
         bool _isAlleneLike(int i);
         void _handleCurlyBrace(_AtomDesc& atom, bool& inside_polymer);
-        void _handlePolymerRepetition(int i);
+        void _handlePolymerRepetition(int i, Array<int>& aromatic_stereo_centers);
 
         static void _readAtom(Array<char>& atom_str, bool first_in_brackets, _AtomDesc& atom, std::unique_ptr<QueryMolecule::Atom>& qatom,
                               bool smarts_mode = false, bool inside_rsmiles = false, bool strict_aliphatic = false);

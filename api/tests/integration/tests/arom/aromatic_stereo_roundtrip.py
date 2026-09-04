@@ -10,6 +10,59 @@ from env_indigo import *  # noqa
 
 indigo = Indigo()
 
+
+def stereo_count(molecule):
+    return len([atom for atom in molecule.iterateStereocenters()])
+
+
+def assert_strict_canonical_roundtrip(smiles, expected_stereo=None):
+    # Use a fresh Indigo session for the consumer side. The contract being
+    # tested is serializer -> independent loader, not merely repeated calls on
+    # one molecule object.
+    producer = Indigo()
+    molecule = producer.loadMolecule(smiles)
+    saved = molecule.canonicalSmiles()
+    if expected_stereo is not None:
+        assert stereo_count(molecule) == expected_stereo
+
+    consumer = Indigo()
+    reloaded = consumer.loadMolecule(saved)
+    if expected_stereo is not None:
+        assert stereo_count(reloaded) == expected_stereo
+    assert reloaded.canonicalSmiles() == saved
+    return saved
+
+
+def assert_aromatic_serializer_contract(source_smiles, aromatic_atom_token):
+    # Start from an explicit/Kekule representation that the ordinary Indigo
+    # stereocenter rules already accept. If Indigo aromatizes and serializes
+    # that center as lowercase @/@@, a fresh Indigo loader must consume the
+    # emitted representation without losing stereochemistry.
+    producer = Indigo()
+    molecule = producer.loadMolecule(source_smiles)
+    source_canonical = molecule.canonicalSmiles()
+    expected_stereo = stereo_count(molecule)
+    assert expected_stereo > 0
+
+    molecule.dearomatize()
+    assert stereo_count(molecule) == expected_stereo
+    molecule.aromatize()
+    assert stereo_count(molecule) == expected_stereo
+
+    aromatic = molecule.canonicalSmiles()
+    assert aromatic_atom_token in aromatic
+
+    consumer = Indigo()
+    reloaded = consumer.loadMolecule(aromatic)
+    assert stereo_count(reloaded) == expected_stereo
+    assert reloaded.canonicalSmiles() == aromatic
+
+    reloaded.dearomatize()
+    assert stereo_count(reloaded) == expected_stereo
+    assert reloaded.canonicalSmiles() == source_canonical
+    return aromatic, expected_stereo
+
+
 source = "C[C@@H]1[C@@H](S2=N[S@]1=NC(=N2)C(F)(F)F)C"
 expected_aromatic = "C[C@H]1[C@@H](C)[s@@]2[n]c([n][s]1[n]2)C(F)(F)F"
 
@@ -35,6 +88,60 @@ roundtrip_dearomatized = indigo.loadMolecule(aromatic)
 roundtrip_dearomatized.dearomatize()
 assert len([atom for atom in roundtrip_dearomatized.iterateStereocenters()]) == original_stereo
 assert roundtrip_dearomatized.canonicalSmiles() == source_canonical
+
+# The regression is the serializer/loader contract, not a sulfur-only special
+# case. These explicit/Kekule sources exercise the heavy aromatic elements for
+# which Indigo already defines tetrahedral stereocenter chemistry and can emit
+# lowercase aromatic SMILES.
+serializer_contract_cases = (
+    (
+        source,
+        "[s@",
+    ),
+    (
+        "CN(C)[P@]1(F)=NP(F)(F)=NP(=N1)(N(C)C)N(C)C",
+        "[p@",
+    ),
+    (
+        "C[As@]1(F)C=CC=C1",
+        "[as@",
+    ),
+)
+serializer_contract_outputs = []
+for contract_source, aromatic_token in serializer_contract_cases:
+    serializer_contract_outputs.append(
+        assert_aromatic_serializer_contract(contract_source, aromatic_token)
+    )
+
+# CID 16419269 exposed the phosphorus member of the same bug class after the
+# sulfur fix had already passed the full release harness. Keep the exact
+# Indigo-generated aromatic canonical SMILES as a permanent production
+# regression in addition to the producer-side contract above.
+pubchem_16419269_aromatic = (
+    "CN(C)[p@]1(F)[n][p](F)(F)[n][p]([n]1)(N(C)C)N(C)C"
+)
+pubchem_16419269 = Indigo().loadMolecule(pubchem_16419269_aromatic)
+assert stereo_count(pubchem_16419269) == 1
+pubchem_16419269_saved = pubchem_16419269.canonicalSmiles()
+assert_strict_canonical_roundtrip(pubchem_16419269_saved, 1)
+
+# The opposite phosphorus parity is a distinct stereoisomer and must satisfy
+# the same independent save/reload contract.
+pubchem_16419269_opposite = pubchem_16419269_aromatic.replace("[p@]", "[p@@]", 1)
+pubchem_16419269_opposite_saved = assert_strict_canonical_roundtrip(
+    pubchem_16419269_opposite, 1
+)
+assert pubchem_16419269_opposite_saved != pubchem_16419269_saved
+
+# Different supported heavy-element centers must coexist in one molecule load;
+# validation context must not accidentally depend on all fallback centers being
+# the same element.
+mixed_heavy_aromatic = expected_aromatic + "." + pubchem_16419269_aromatic
+mixed_heavy = Indigo().loadMolecule(mixed_heavy_aromatic)
+mixed_heavy_stereo = original_stereo + 1
+assert stereo_count(mixed_heavy) == mixed_heavy_stereo
+mixed_heavy_saved = mixed_heavy.canonicalSmiles()
+assert_strict_canonical_roundtrip(mixed_heavy_saved, mixed_heavy_stereo)
 
 # The opposite sulfur parity must remain a distinct stereoisomer and round-trip.
 opposite_aromatic = expected_aromatic.replace("[s@@]", "[s@]", 1)
@@ -125,9 +232,10 @@ assert connectivity_roundtrip.canonicalSmiles() == connectivity_aromatic
 
 invalid_aromatic = "C[c@]1ccccc1"
 
-# The fallback is sulfur-specific. A normal N-substituted pyrrole-like
-# aromatic system is valid, but explicit tetrahedral chirality on that
-# aromatic nitrogen must not become legal through Kekule fallback.
+# The fallback is deliberately limited to the heavy-element stereocenter
+# family above. A normal N-substituted pyrrole-like aromatic system is valid,
+# but explicit tetrahedral chirality on that aromatic nitrogen must not become
+# legal through Kekule fallback.
 neutral_aromatic_n = "Cn1cccc1"
 indigo.loadMolecule(neutral_aromatic_n)
 
@@ -147,10 +255,22 @@ finally:
     indigo.setOption("ignore-stereochemistry-errors", False)
 
 for molecule in tolerant_aromatic_n:
-    assert len([atom for atom in molecule.iterateStereocenters()]) == 0
+    assert stereo_count(molecule) == 0
+
+# Selenium is lowercase-aromatic-capable in the SMILES saver, but Indigo has no
+# corresponding tetrahedral stereocenter configuration. The compatibility
+# fallback must therefore not turn aromatic selenium into a new stereo class.
+invalid_aromatic_se = ("C[se@]1cccc1", "C[se@@]1cccc1")
+for invalid in invalid_aromatic_se:
+    try:
+        Indigo().loadMolecule(invalid)
+    except IndigoException:
+        pass
+    else:
+        raise AssertionError("aromatic selenium chirality was accepted")
 
 # An unrelated neutral aromatic nitrogen component must not interfere with the
-# valid sulfur fallback, regardless of component order.
+# valid heavy-element fallback, regardless of component order.
 for combined in (
     expected_aromatic + "." + neutral_aromatic_n,
     neutral_aromatic_n + "." + expected_aromatic,
@@ -163,7 +283,7 @@ for combined in (
     assert combined_roundtrip.canonicalSmiles() == combined_saved
 
 # In tolerant mode an invalid aromatic N center must disappear while the valid
-# sulfur stereo survives, in either component order. The sanitized save must
+# supported heavy-element stereo survives, in either component order. The sanitized save must
 # then reload strictly with the same stereo state.
 mixed_tolerant_inputs = (
     expected_aromatic + "." + invalid_aromatic_n[0],

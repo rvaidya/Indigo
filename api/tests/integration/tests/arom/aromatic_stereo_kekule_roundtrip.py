@@ -228,6 +228,17 @@ for invalid in (
     assert_strict_rejects(invalid)
     assert_tolerant_omits_stereo(invalid)
 
+# The same ordinary N degree-3 configuration can be valid in an asymmetric
+# pyrrole-like producer fixture above but invalid when the two ring paths are
+# symmetry-equivalent. The generic fallback must not turn configuration-table
+# eligibility into unconditional acceptance.
+for invalid in (
+    "C[n@]1cccc1",
+    "C[n@@]1cccc1",
+):
+    assert_strict_rejects(invalid)
+    assert_tolerant_omits_stereo(invalid)
+
 # In tolerant mode an invalid aromatic center must be omitted without removing
 # a valid fallback center in another component. The sanitized result must then
 # be consumable strictly, regardless of component order.
@@ -280,6 +291,24 @@ assert_canonical_roundtrip(joint_aromatic, joint_stereo)
 # ---------------------------------------------------------------------------
 # Post-SMILES chemistry changes must not leave stale fallback stereo
 # ---------------------------------------------------------------------------
+
+# Radicals are intentionally not a SmilesLoader-specific exclusion. Indigo's
+# existing ordinary stereocenter model and aromaticity model are the authorities;
+# the latter explicitly supports radical pi participation. Pin that model-driven
+# behavior so rev1's element/radical policy cannot silently return.
+p_radical = Indigo().loadMolecule(PUBCHEM_P_AROMATIC + " |^1:3|")
+assert p_radical.getAtom(3).radicalElectrons() > 0
+assert stereo_count(p_radical) == p_stereo
+
+# A chemistry edit in an unrelated component advances the edit revision and
+# therefore forces final aromatic revalidation. It must not invalidate a center
+# whose own chemistry is unchanged.
+s_atom_count = Indigo().loadMolecule(PUBCHEM_S_AROMATIC).countAtoms()
+cx_unrelated_rsite = (
+    PUBCHEM_S_AROMATIC + ".[*] |$" + ";" * s_atom_count + "_R1$|"
+)
+cx_unrelated = Indigo().loadMolecule(cx_unrelated_rsite)
+assert stereo_count(cx_unrelated) == s_stereo
 
 # Benign coordinates edit molecule state but not chemistry; stereo must survive.
 coordinates = ";".join("%d,%d," % (i, i % 3) for i in range(14))

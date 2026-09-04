@@ -90,10 +90,7 @@ assert len([atom for atom in roundtrip_dearomatized.iterateStereocenters()]) == 
 assert roundtrip_dearomatized.canonicalSmiles() == source_canonical
 
 # The regression is the serializer/loader contract, not a sulfur-only special
-# case. These explicit/Kekule sources exercise the heavy aromatic elements for
-# which Indigo already defines tetrahedral stereocenter chemistry and can emit
-# lowercase aromatic SMILES.
-# The original sulfur CID gives us a complete producer-side fixture: a
+# case. The original sulfur CID gives us a complete producer-side fixture: a
 # Kekule source that Indigo aromatizes and serializes with explicit aromatic
 # stereo. Keep that end-to-end producer contract here. The phosphorus case
 # below uses the exact canonical aromatic string emitted in production for CID

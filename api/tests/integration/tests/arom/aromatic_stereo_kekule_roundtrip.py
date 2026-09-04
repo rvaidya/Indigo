@@ -12,8 +12,12 @@ from env_indigo import *  # noqa
 PUBCHEM_S_SOURCE = "C[C@@H]1[C@@H](S2=N[S@]1=NC(=N2)C(F)(F)F)C"
 PUBCHEM_S_AROMATIC = "C[C@H]1[C@@H](C)[s@@]2[n]c([n][s]1[n]2)C(F)(F)F"
 
-# Exact Indigo-generated aromatic canonical SMILES that failed to reload in
-# production for PubChem CID 16419269.
+# Current PubChem source connectivity for CID 21732325. It intentionally has
+# no defined stereochemistry at phosphorus.
+PUBCHEM_P_SOURCE = "CN(C)P1(=NP(=NP(=N1)(F)F)(N(C)C)F)N(C)C"
+
+# Exact stored Indigo aromatic representation that failed to reload during
+# PubChem reconciliation for this compound (internal compounds.id 16419269).
 PUBCHEM_P_AROMATIC = "CN(C)[p@]1(F)[n][p](F)(F)[n][p]([n]1)(N(C)C)N(C)C"
 
 
@@ -95,6 +99,22 @@ s_dearomatized.dearomatize()
 s_source_canonical = Indigo().loadMolecule(PUBCHEM_S_SOURCE).canonicalSmiles()
 assert s_dearomatized.canonicalSmiles() == s_source_canonical
 
+# CID 21732325's current PubChem source does not define P stereo, so it is not
+# a parity baseline. It is still an independent connectivity baseline: Indigo
+# must not invent stereo while canonicalizing it, and the historical aromatic
+# failure must reduce to the same source chemistry when its explicit stereo is
+# removed.
+p_source = Indigo().loadMolecule(PUBCHEM_P_SOURCE)
+assert stereo_count(p_source) == 0
+p_source.dearomatize()
+p_source_canonical = p_source.canonicalSmiles()
+assert "@" not in p_source_canonical
+
+p_source.aromatize()
+p_source_aromatic = p_source.canonicalSmiles()
+assert stereo_count(p_source) == 0
+assert "@" not in p_source_aromatic
+
 p_molecule = Indigo().loadMolecule(PUBCHEM_P_AROMATIC)
 p_stereo = stereo_count(p_molecule)
 assert p_stereo == 1
@@ -102,11 +122,25 @@ p_aromatic = p_molecule.canonicalSmiles()
 assert p_aromatic == PUBCHEM_P_AROMATIC
 assert_canonical_roundtrip(PUBCHEM_P_AROMATIC, p_stereo)
 
+p_without_stereo = Indigo().loadMolecule(PUBCHEM_P_AROMATIC)
+p_without_stereo.clearStereocenters()
+p_without_stereo.dearomatize()
+assert p_without_stereo.canonicalSmiles() == p_source_canonical
+
 # Both parities must remain distinct and independently stable.
 s_opposite = PUBCHEM_S_AROMATIC.replace("[s@@]", "[s@]", 1)
 p_opposite = PUBCHEM_P_AROMATIC.replace("[p@]", "[p@@]", 1)
 assert assert_canonical_roundtrip(s_opposite, s_stereo) != s_aromatic
 assert assert_canonical_roundtrip(p_opposite, p_stereo) != p_aromatic
+
+# The source does not choose between these P enantiomeric representations.
+# Removing explicit stereo from either must recover the same PubChem source
+# connectivity/bonding.
+for p_variant in (PUBCHEM_P_AROMATIC, p_opposite):
+    p_variant_without_stereo = Indigo().loadMolecule(p_variant)
+    p_variant_without_stereo.clearStereocenters()
+    p_variant_without_stereo.dearomatize()
+    assert p_variant_without_stereo.canonicalSmiles() == p_source_canonical
 
 
 # ---------------------------------------------------------------------------

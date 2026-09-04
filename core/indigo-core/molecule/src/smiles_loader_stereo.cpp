@@ -20,20 +20,217 @@
 #include <memory>
 #include <regex>
 #include <unordered_set>
+#include <vector>
 
 #include "base_cpp/scanner.h"
 #include "graph/cycle_basis.h"
 #include "molecule/elements.h"
 #include "molecule/molecule.h"
+#include "molecule/molecule_arom.h"
+#include "molecule/molecule_dearom.h"
 #include "molecule/molecule_stereocenters.h"
 #include "molecule/query_molecule.h"
 #include "molecule/smiles_loader.h"
 
 using namespace indigo;
 
-void SmilesLoader::_calcStereocenters()
+namespace
+{
+    struct AromaticBondOrder
+    {
+        int edge_idx;
+        int bond_order;
+    };
+
+    struct AromaticStereoAssignment
+    {
+        std::vector<AromaticBondOrder> bond_orders;
+    };
+
+    struct AromaticStereoCenterCandidates
+    {
+        std::vector<AromaticStereoAssignment> assignments;
+    };
+
+    struct AromaticStereoValidationContext
+    {
+        DearomatizationsStorage dearomatizations;
+        bool dearomatizations_ready = false;
+        std::vector<AromaticStereoCenterCandidates> centers;
+    };
+
+    void ensureDearomatizations(Molecule& mol, AromaticStereoValidationContext& context)
+    {
+        if (context.dearomatizations_ready)
+            return;
+
+        AromaticityOptions options;
+        Dearomatizer dearomatizer(mol, nullptr, options);
+        dearomatizer.enumerateDearomatizations(context.dearomatizations);
+        context.dearomatizations_ready = true;
+    }
+
+    bool collectAromaticStereoCenterCandidates(Molecule* mol, int atom_idx, AromaticStereoCenterCandidates& center)
+    {
+        if (mol == nullptr || atom_idx < 0 || atom_idx >= mol->vertexEnd() || !mol->hasVertex(atom_idx) ||
+            mol->getAtomAromaticity(atom_idx) != ATOM_AROMATIC)
+            return false;
+
+        const Vertex& vertex = mol->getVertex(atom_idx);
+
+        // This fallback is intentionally chemistry-model driven rather than
+        // element driven. Ordinary Indigo stereocenter validation remains the
+        // authority for element, charge, degree, and bond-order configurations;
+        // the fallback only supplies concrete Kekule assignments for aromatic
+        // bonds and then proves those assignments against the whole aromatic
+        // system.
+        if (vertex.degree() <= 2 || vertex.degree() > 4)
+            return false;
+
+        Array<int> vertices;
+        Array<int> aromatic_bonds;
+        vertices.push(atom_idx);
+
+        for (int i = vertex.neiBegin(); i != vertex.neiEnd(); i = vertex.neiNext(i))
+        {
+            const int edge_idx = vertex.neiEdge(i);
+            vertices.push(vertex.neiVertex(i));
+
+            if (mol->getBondOrder(edge_idx) == BOND_AROMATIC)
+                aromatic_bonds.push(edge_idx);
+        }
+
+        // Actual aromatic bond participation, not lowercase SMILES spelling,
+        // defines the exceptional path. This also covers aromatic atoms that a
+        // saver must spell uppercase with explicit aromatic bonds.
+        if (aromatic_bonds.empty())
+            return false;
+
+        Molecule local;
+        Array<int> mapping;
+        local.makeSubmolecule(*mol, vertices, &mapping, SKIP_ALL);
+
+        const int local_atom_idx = mapping[atom_idx];
+        Array<int> local_aromatic_bonds;
+        for (int i = 0; i < aromatic_bonds.size(); i++)
+        {
+            const Edge& edge = mol->getEdge(aromatic_bonds[i]);
+            const int neighbor_idx = edge.beg == atom_idx ? edge.end : edge.beg;
+            const int local_edge_idx = local.findEdgeIndex(local_atom_idx, mapping[neighbor_idx]);
+            if (local_edge_idx < 0)
+                return false;
+            local_aromatic_bonds.push(local_edge_idx);
+        }
+
+        const int combinations = 1 << aromatic_bonds.size();
+        for (int mask = 0; mask < combinations; mask++)
+        {
+            for (int i = 0; i < local_aromatic_bonds.size(); i++)
+            {
+                const int bond_order = (mask & (1 << i)) != 0 ? BOND_DOUBLE : BOND_SINGLE;
+                local.setBondOrder_Silent(local_aromatic_bonds[i], bond_order);
+            }
+
+            if (!local.isPossibleStereocenter(local_atom_idx))
+                continue;
+
+            AromaticStereoAssignment assignment;
+            for (int i = 0; i < aromatic_bonds.size(); i++)
+            {
+                const int bond_order = (mask & (1 << i)) != 0 ? BOND_DOUBLE : BOND_SINGLE;
+                assignment.bond_orders.push_back({aromatic_bonds[i], bond_order});
+            }
+            center.assignments.push_back(assignment);
+        }
+
+        return !center.assignments.empty();
+    }
+
+    void unfixCandidateBonds(DearomatizationMatcher& matcher, const std::vector<int>& newly_fixed_bonds, std::vector<int>& fixed_bond_orders)
+    {
+        for (auto i = newly_fixed_bonds.rbegin(); i != newly_fixed_bonds.rend(); ++i)
+        {
+            matcher.unfixBond(*i);
+            fixed_bond_orders[*i] = 0;
+        }
+    }
+
+    bool areAromaticStereoCentersJointlyPossible(int center_idx, DearomatizationMatcher& matcher,
+                                                 const std::vector<AromaticStereoCenterCandidates>& centers,
+                                                 std::vector<int>& fixed_bond_orders)
+    {
+        if (center_idx == static_cast<int>(centers.size()))
+            return true;
+
+        for (const auto& assignment : centers[center_idx].assignments)
+        {
+            std::vector<int> newly_fixed_bonds;
+            bool valid = true;
+
+            try
+            {
+                for (const auto& bond : assignment.bond_orders)
+                {
+                    const int fixed_order = fixed_bond_orders[bond.edge_idx];
+                    if (fixed_order != 0)
+                    {
+                        if (fixed_order != bond.bond_order)
+                        {
+                            valid = false;
+                            break;
+                        }
+                        continue;
+                    }
+
+                    if (!matcher.isAbleToFixBond(bond.edge_idx, bond.bond_order) || !matcher.fixBond(bond.edge_idx, bond.bond_order))
+                    {
+                        valid = false;
+                        break;
+                    }
+
+                    fixed_bond_orders[bond.edge_idx] = bond.bond_order;
+                    newly_fixed_bonds.push_back(bond.edge_idx);
+                }
+
+                if (valid && areAromaticStereoCentersJointlyPossible(center_idx + 1, matcher, centers, fixed_bond_orders))
+                    return true;
+            }
+            catch (...)
+            {
+                unfixCandidateBonds(matcher, newly_fixed_bonds, fixed_bond_orders);
+                throw;
+            }
+
+            unfixCandidateBonds(matcher, newly_fixed_bonds, fixed_bond_orders);
+        }
+
+        return false;
+    }
+
+    bool isPossibleAromaticStereocenter(Molecule* mol, int atom_idx, AromaticStereoValidationContext& context)
+    {
+        AromaticStereoCenterCandidates center;
+        if (!collectAromaticStereoCenterCandidates(mol, atom_idx, center))
+            return false;
+
+        ensureDearomatizations(*mol, context);
+        context.centers.push_back(center);
+
+        DearomatizationMatcher matcher(context.dearomatizations, *mol, nullptr);
+        std::vector<int> fixed_bond_orders(mol->edgeEnd(), 0);
+        const bool possible = areAromaticStereoCentersJointlyPossible(0, matcher, context.centers, fixed_bond_orders);
+
+        if (!possible)
+            context.centers.pop_back();
+
+        return possible;
+    }
+} // namespace
+
+void SmilesLoader::_calcStereocenters(Array<int>& aromatic_stereo_centers)
 {
     int i, j;
+    AromaticStereoValidationContext aromatic_stereo_context;
 
     for (i = 0; i < _atoms.size(); i++)
     {
@@ -177,7 +374,15 @@ void SmilesLoader::_calcStereocenters()
             if (_atoms[i].chirality == 2)
                 std::swap(pyramid[0], pyramid[1]);
 
-            if (!_bmol->isPossibleStereocenter(i))
+            bool possible_stereocenter = _bmol->isPossibleStereocenter(i);
+            bool aromatic_fallback = false;
+            if (!possible_stereocenter)
+            {
+                possible_stereocenter = isPossibleAromaticStereocenter(_mol, i, aromatic_stereo_context);
+                aromatic_fallback = possible_stereocenter;
+            }
+
+            if (!possible_stereocenter)
             {
                 if (!stereochemistry_options.ignore_errors)
                     throw Error("chirality not possible on atom #%d", i);
@@ -185,6 +390,8 @@ void SmilesLoader::_calcStereocenters()
             }
 
             _bmol->addStereocenters(i, MoleculeStereocenters::ATOM_ABS, 0, pyramid);
+            if (aromatic_fallback)
+                aromatic_stereo_centers.push(i);
         }
     }
 }
@@ -212,16 +419,37 @@ void SmilesLoader::_calcCisTrans()
     }
 }
 
-void SmilesLoader::_validateStereoCenters()
+void SmilesLoader::_validateStereoCenters(const Array<int>& aromatic_stereo_centers)
 {
+    AromaticStereoValidationContext aromatic_stereo_context;
+    Array<int> invalid_aromatic_stereo_centers;
+
     for (int i = _bmol->stereocenters.begin(); i < _bmol->stereocenters.end(); i = _bmol->stereocenters.next(i))
     {
-        auto atom_idx = _bmol->stereocenters.getAtomIndex(i);
-        if (_bmol->isPossibleStereocenter(atom_idx) || _bmol->stereocenters.isAtropisomeric(atom_idx))
+        const int atom_idx = _bmol->stereocenters.getAtomIndex(i);
+        bool possible_stereocenter = _bmol->isPossibleStereocenter(atom_idx);
+        const bool aromatic_fallback = aromatic_stereo_centers.find(atom_idx) >= 0;
+
+        // Fallback centers are exceptional and rare. Always revalidate them
+        // against the final molecule after CXSMILES and CurlySMILES processing
+        // instead of relying on mutation-revision bookkeeping.
+        if (!possible_stereocenter && aromatic_fallback)
+            possible_stereocenter = isPossibleAromaticStereocenter(_mol, atom_idx, aromatic_stereo_context);
+
+        if (possible_stereocenter || _bmol->stereocenters.isAtropisomeric(atom_idx))
             continue;
+
         if (!stereochemistry_options.ignore_errors)
             throw Error("atom %d is not a stereocenter", atom_idx);
+
+        // Match _calcStereocenters() ignore-errors behavior without broadening
+        // cleanup to unrelated legacy stereocenters.
+        if (aromatic_fallback)
+            invalid_aromatic_stereo_centers.push(atom_idx);
     }
+
+    for (int i = 0; i < invalid_aromatic_stereo_centers.size(); i++)
+        _bmol->stereocenters.remove(invalid_aromatic_stereo_centers[i]);
 }
 
 void SmilesLoader::_addExplicitHForStereo()

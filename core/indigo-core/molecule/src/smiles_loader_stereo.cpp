@@ -103,7 +103,7 @@ namespace
         // Actual aromatic bond participation, not lowercase SMILES spelling,
         // defines the exceptional path. This also covers aromatic atoms that a
         // saver must spell uppercase with explicit aromatic bonds.
-        if (aromatic_bonds.empty())
+        if (aromatic_bonds.size() == 0)
             return false;
 
         Molecule local;

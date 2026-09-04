@@ -177,7 +177,7 @@ namespace indigo
         void _loadMolecule();
         void _parseMolecule();
         void _loadParsedMolecule();
-        void _validateStereoCenters(const Array<int>& aromatic_stereo_centers);
+        void _validateStereoCenters(int stereo_validation_revision, const Array<int>& aromatic_stereo_centers);
 
         void _calcStereocenters(Array<int>& aromatic_stereo_centers);
         void _calcCisTrans();

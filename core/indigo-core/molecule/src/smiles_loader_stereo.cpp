@@ -419,7 +419,7 @@ void SmilesLoader::_calcCisTrans()
     }
 }
 
-void SmilesLoader::_validateStereoCenters(const Array<int>& aromatic_stereo_centers)
+void SmilesLoader::_validateStereoCenters(int stereo_validation_revision, const Array<int>& aromatic_stereo_centers)
 {
     AromaticStereoValidationContext aromatic_stereo_context;
     Array<int> invalid_aromatic_stereo_centers;
@@ -430,11 +430,17 @@ void SmilesLoader::_validateStereoCenters(const Array<int>& aromatic_stereo_cent
         bool possible_stereocenter = _bmol->isPossibleStereocenter(atom_idx);
         const bool aromatic_fallback = aromatic_stereo_centers.find(atom_idx) >= 0;
 
-        // Fallback centers are exceptional and rare. Always revalidate them
-        // against the final molecule after CXSMILES and CurlySMILES processing
-        // instead of relying on mutation-revision bookkeeping.
         if (!possible_stereocenter && aromatic_fallback)
-            possible_stereocenter = isPossibleAromaticStereocenter(_mol, atom_idx, aromatic_stereo_context);
+        {
+            // The fallback was already proved against the complete aromatic
+            // system during initial stereo construction. Only repeat that
+            // expensive proof if later SMILES/CX/Curly processing edited the
+            // molecule.
+            if (_bmol->getEditRevision() == stereo_validation_revision)
+                possible_stereocenter = true;
+            else
+                possible_stereocenter = isPossibleAromaticStereocenter(_mol, atom_idx, aromatic_stereo_context);
+        }
 
         if (possible_stereocenter || _bmol->stereocenters.isAtropisomeric(atom_idx))
             continue;

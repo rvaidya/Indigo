@@ -190,6 +190,10 @@ void SmilesLoader::_loadParsedMolecule()
     _calcStereocenters(aromatic_stereo_centers);
     _calcCisTrans();
 
+    // Initial aromatic fallback validation is already a whole-molecule proof.
+    // Reuse it when subsequent CX/Curly processing leaves the molecule untouched.
+    const int stereo_validation_revision = _bmol->getEditRevision();
+
     _scanner.skipSpace();
 
     if (_scanner.lookNext() == '|')
@@ -252,7 +256,7 @@ void SmilesLoader::_loadParsedMolecule()
     for (i = 0; i < _polymer_repetitions.size(); i++)
         _handlePolymerRepetition(i, aromatic_stereo_centers);
 
-    _validateStereoCenters(aromatic_stereo_centers);
+    _validateStereoCenters(stereo_validation_revision, aromatic_stereo_centers);
 }
 
 void SmilesLoader::_markAromaticBonds()

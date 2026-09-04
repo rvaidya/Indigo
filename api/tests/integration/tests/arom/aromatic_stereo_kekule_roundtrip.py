@@ -155,16 +155,24 @@ assert_tolerant_omits_stereo(invalid_aromatic_carbon)
 # In tolerant mode an invalid aromatic center must be omitted without removing
 # a valid fallback center in another component. The sanitized result must then
 # be consumable strictly.
-mixed_tolerant_input = PUBCHEM_S_AROMATIC + "." + invalid_aromatic_carbon
-indigo = Indigo()
-indigo.setOption("ignore-stereochemistry-errors", True)
-try:
-    mixed_tolerant = indigo.loadMolecule(mixed_tolerant_input)
-finally:
-    indigo.setOption("ignore-stereochemistry-errors", False)
-assert stereo_count(mixed_tolerant) == s_stereo
-mixed_tolerant_canonical = mixed_tolerant.canonicalSmiles()
-assert stereo_count(Indigo().loadMolecule(mixed_tolerant_canonical)) == s_stereo
+for mixed_tolerant_input in (
+    PUBCHEM_S_AROMATIC + "." + invalid_aromatic_carbon,
+    invalid_aromatic_carbon + "." + PUBCHEM_S_AROMATIC,
+):
+    indigo = Indigo()
+    indigo.setOption("ignore-stereochemistry-errors", True)
+    try:
+        mixed_tolerant = indigo.loadMolecule(mixed_tolerant_input)
+    finally:
+        indigo.setOption("ignore-stereochemistry-errors", False)
+
+    assert stereo_count(mixed_tolerant) == s_stereo
+    mixed_tolerant_canonical = mixed_tolerant.canonicalSmiles()
+
+    # Tolerant cleanup must produce a structure that is independently valid in
+    # strict mode, regardless of which component was encountered first.
+    strict_mixed_tolerant = Indigo().loadMolecule(mixed_tolerant_canonical)
+    assert stereo_count(strict_mixed_tolerant) == s_stereo
 
 # Indigo already has aromatic silicon fixtures whose canonical form uses
 # uppercase Si plus explicit aromatic ':' bonds. A Si tetrahedral configuration
@@ -199,11 +207,14 @@ for invalid in (
 
 # Different configuration classes/elements must coexist without sharing hidden
 # element-specific state.
-mixed_aromatic = PUBCHEM_S_AROMATIC + "." + PUBCHEM_P_AROMATIC
-mixed = Indigo().loadMolecule(mixed_aromatic)
 mixed_stereo = s_stereo + p_stereo
-assert stereo_count(mixed) == mixed_stereo
-assert_canonical_roundtrip(mixed.canonicalSmiles(), mixed_stereo)
+for mixed_aromatic in (
+    PUBCHEM_S_AROMATIC + "." + PUBCHEM_P_AROMATIC,
+    PUBCHEM_P_AROMATIC + "." + PUBCHEM_S_AROMATIC,
+):
+    mixed = Indigo().loadMolecule(mixed_aromatic)
+    assert stereo_count(mixed) == mixed_stereo
+    assert_canonical_roundtrip(mixed.canonicalSmiles(), mixed_stereo)
 
 # Two explicit aromatic centers in the same ring system must be satisfiable in
 # one Kekule assignment, not validated independently.

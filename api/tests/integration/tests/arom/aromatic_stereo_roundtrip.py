@@ -93,25 +93,12 @@ assert roundtrip_dearomatized.canonicalSmiles() == source_canonical
 # case. These explicit/Kekule sources exercise the heavy aromatic elements for
 # which Indigo already defines tetrahedral stereocenter chemistry and can emit
 # lowercase aromatic SMILES.
-serializer_contract_cases = (
-    (
-        source,
-        "[s@",
-    ),
-    (
-        "CN(C)[P@]1(F)=NP(F)(F)=NP(=N1)(N(C)C)N(C)C",
-        "[p@",
-    ),
-    (
-        "C[As@]1(F)C=CC=C1",
-        "[as@",
-    ),
-)
-serializer_contract_outputs = []
-for contract_source, aromatic_token in serializer_contract_cases:
-    serializer_contract_outputs.append(
-        assert_aromatic_serializer_contract(contract_source, aromatic_token)
-    )
+# The original sulfur CID gives us a complete producer-side fixture: a
+# Kekule source that Indigo aromatizes and serializes with explicit aromatic
+# stereo. Keep that end-to-end producer contract here. The phosphorus case
+# below uses the exact canonical aromatic string emitted in production for CID
+# 16419269 rather than inventing a synthetic source structure.
+assert_aromatic_serializer_contract(source, "[s@")
 
 # CID 16419269 exposed the phosphorus member of the same bug class after the
 # sulfur fix had already passed the full release harness. Keep the exact
@@ -132,6 +119,38 @@ pubchem_16419269_opposite_saved = assert_strict_canonical_roundtrip(
     pubchem_16419269_opposite, 1
 )
 assert pubchem_16419269_opposite_saved != pubchem_16419269_saved
+
+# Do not reintroduce the earlier neutral-S/degree-3 hard coding under another
+# name. Indigo's existing stereocenter table also defines charged aromatic-
+# compatible P/S configurations; the fallback should delegate those details to
+# isPossibleStereocenter() and the global dearomatization matcher.
+supported_heavy_configurations = (
+    "C[s@+]1cccc1",
+    "C[p@+]1(F)cccc1",
+)
+for supported in supported_heavy_configurations:
+    assert_strict_canonical_roundtrip(supported, 1)
+
+# CX radicals are applied after the base stereocenter is constructed. A radical
+# on the real phosphorus fallback center (atom 3) must invalidate it during the
+# final chemistry revalidation rather than leaving stale stereo behind.
+pubchem_16419269_radical = pubchem_16419269_aromatic + " |^1:3|"
+try:
+    Indigo().loadMolecule(pubchem_16419269_radical)
+except IndigoException:
+    pass
+else:
+    raise AssertionError("CX-radical aromatic phosphorus stereocenter was accepted")
+
+radical_tolerant_indigo = Indigo()
+radical_tolerant_indigo.setOption("ignore-stereochemistry-errors", True)
+try:
+    pubchem_16419269_radical_tolerant = radical_tolerant_indigo.loadMolecule(
+        pubchem_16419269_radical
+    )
+finally:
+    radical_tolerant_indigo.setOption("ignore-stereochemistry-errors", False)
+assert stereo_count(pubchem_16419269_radical_tolerant) == 0
 
 # Different supported heavy-element centers must coexist in one molecule load;
 # validation context must not accidentally depend on all fallback centers being
@@ -256,6 +275,20 @@ finally:
 
 for molecule in tolerant_aromatic_n:
     assert stereo_count(molecule) == 0
+
+# Arsenic is intentionally eligible to reach the same existing stereocenter
+# rules, but eligibility alone is not acceptance. This six-member aromatic
+# system cannot realize the all-single As neighborhood required by Indigo's
+# neutral degree-4 As stereocenter configuration, so global Kekule validation
+# must reject both parities.
+invalid_global_aromatic_as = ("C[as@]1(F)ccccc1", "C[as@@]1(F)ccccc1")
+for invalid in invalid_global_aromatic_as:
+    try:
+        Indigo().loadMolecule(invalid)
+    except IndigoException:
+        pass
+    else:
+        raise AssertionError("globally incompatible aromatic arsenic chirality was accepted")
 
 # Selenium is lowercase-aromatic-capable in the SMILES saver, but Indigo has no
 # corresponding tetrahedral stereocenter configuration. The compatibility

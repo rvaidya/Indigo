@@ -292,13 +292,15 @@ assert_canonical_roundtrip(joint_aromatic, joint_stereo)
 # Post-SMILES chemistry changes must not leave stale fallback stereo
 # ---------------------------------------------------------------------------
 
-# Radicals are intentionally not a SmilesLoader-specific exclusion. Indigo's
-# existing ordinary stereocenter model and aromaticity model are the authorities;
-# the latter explicitly supports radical pi participation. Pin that model-driven
-# behavior so rev1's element/radical policy cannot silently return.
-p_radical = Indigo().loadMolecule(PUBCHEM_P_AROMATIC + " |^1:3|")
-assert p_radical.getAtom(3).radicalElectrons() > 0
-assert stereo_count(p_radical) == p_stereo
+# Radicals are intentionally not a SmilesLoader-specific exclusion. They still
+# participate in Indigo's existing valence/aromaticity models. On the production
+# P center a radical changes the allowed connectivity so no globally valid
+# degree-4/one-double Kekule assignment remains: strict mode rejects the stale
+# stereo and tolerant mode removes it while preserving the radical itself.
+p_radical_smiles = PUBCHEM_P_AROMATIC + " |^1:3|"
+assert_strict_rejects(p_radical_smiles)
+p_radical_tolerant = assert_tolerant_omits_stereo(p_radical_smiles)
+assert p_radical_tolerant.getAtom(3).radicalElectrons() > 0
 
 # A chemistry edit in an unrelated component advances the edit revision and
 # therefore forces final aromatic revalidation. It must not invalidate a center

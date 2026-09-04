@@ -54,7 +54,12 @@ def assert_aromatic_serializer_contract(source, aromatic_marker):
     molecule.aromatize()
     aromatic = molecule.canonicalSmiles()
 
-    assert aromatic_marker in aromatic
+    markers = (
+        (aromatic_marker,)
+        if isinstance(aromatic_marker, str)
+        else tuple(aromatic_marker)
+    )
+    assert any(marker in aromatic for marker in markers)
     assert "@" in aromatic
     assert stereo_count(molecule) == source_stereo
 
@@ -141,48 +146,103 @@ for p_variant in (PUBCHEM_P_AROMATIC, p_opposite):
 
 
 # ---------------------------------------------------------------------------
-# Stereocenter configuration classes that aromatization can expose
+# Complete MoleculeStereocenters configuration coverage
 # ---------------------------------------------------------------------------
 
-# These are not element whitelists. Each source is accepted by Indigo's normal
-# Kekule stereocenter rules first, then aromatized. They exercise zero-double
-# pyramidal centers where the aromatic ring can use a lone-pair state.
-zero_double_sources = (
-    ("neutral nitrogen", "C[N@]1C=C(C)C=C1", "[n@"),
-    ("neutral phosphorus", "C[P@]1C=C(C)C=C1", "[p@"),
-    ("sulfonium sulfur", "C[S@+]1C=C(C)C=C1", "[s@"),
+# MoleculeStereocenters::isPossibleStereocenter() currently defines 17 ordinary
+# tetrahedral configurations. The aromatic fallback must neither add a second
+# element/charge table nor accept every locally plausible aromatic center.
+#
+# The seven configurations below have an Indigo producer path: a valid ordinary
+# Kekule stereocenter can be aromatized while retaining @/@@. The real PubChem
+# sulfur regression above covers neutral S, degree 3, one double bond. These
+# fixtures cover the remaining producer-capable configurations, including the
+# neutral P degree-4/one-double class represented by the stored production P
+# regression above.
+producer_configuration_sources = (
+    ("N neutral degree 3 / 0 double", "C[N@]1C=C(C)C=C1", "[n@"),
+    ("P neutral degree 3 / 0 double", "C[P@]1C=C(C)C=C1", "[p@"),
+    ("S+ degree 3 / 0 double", "C[S@+]1C=C(C)C=C1", "[s@"),
+    (
+        "N neutral degree 4 / 1 double",
+        "C[N@]1(F)=C(C)C=CC=C1",
+        "[n@",
+    ),
+    (
+        "S+ degree 4 / 1 double",
+        "C[S@+]1(F)=C(C)C=CC=C1",
+        "[s@",
+    ),
+    (
+        "P neutral degree 4 / 1 double",
+        "C[P@]1(F)=C(C)C=CC=C1",
+        "[p@",
+    ),
+    (
+        "S neutral degree 4 / 2 doubles",
+        "C[S@]1(=O)=C(C)C=CC=C1",
+        ("[s@", "[S@"),
+    ),
 )
-for _, source, marker in zero_double_sources:
+for _, source, marker in producer_configuration_sources:
     assert_aromatic_serializer_contract(source, marker)
 
-# One-double configurations are a separate stereocenter-table class. The real
-# S/P regressions above cover neutral S and neutral P; these additional cases
-# exercise neutral pentavalent N and tetravalent S+ without adding loader
-# element policy. Use a six-member alternating ring so every ring atom can
-# participate in the aromatic system; the methyl branch also makes the two ring
-# paths around the stereocenter distinct.
-one_double_sources = (
-    ("neutral pentavalent nitrogen", "C[N@]1(F)=C(C)C=CC=C1", "[n@"),
-    ("tetravalent sulfonium sulfur", "C[S@+]1(F)=C(C)C=CC=C1", "[s@"),
+# The remaining ordinary stereocenter-table configurations can be made locally
+# plausible by assigning incident aromatic bonds single/double, but they do not
+# have a globally valid Indigo aromatic/Kekule realization in these fixtures.
+# Exercise both strict rejection and tolerant stereo removal so broadening the
+# generic fallback cannot silently legalize them.
+globally_incompatible_configurations = (
+    ("C neutral degree 3 / 0 double", "C[c@]1cc(C)ccc1"),
+    (
+        "C neutral degree 4 / 0 double",
+        "C[C@]1(F):c(C):c:c:c:c:1",
+    ),
+    ("Si neutral degree 3 / 0 double", "C[Si@]1:ccccc:1"),
+    (
+        "Si neutral degree 4 / 0 double",
+        "C[Si@]1(F):c(C):c:c:c:c:1",
+    ),
+    ("As neutral degree 4 / 0 double", "C[as@]1(F)cc(C)ccc1"),
+    ("B- degree 4 / 0 double", "C[B@-]1(F):c(C):c:c:c:c:1"),
+    ("N+ degree 3 / 0 double", "C[n@+]1cc(C)ccc1"),
+    (
+        "N+ degree 4 / 0 double",
+        "C[N@+]1(F):c(C):c:c:c:c:1",
+    ),
+    ("P+ degree 4 / 0 double", "C[p@+]1(F)cc(C)ccc1"),
 )
-for _, source, marker in one_double_sources:
-    assert_aromatic_serializer_contract(source, marker)
+for _, invalid in globally_incompatible_configurations:
+    assert_strict_rejects(invalid)
+    assert_tolerant_omits_stereo(invalid)
 
+# Together with the exact PubChem S case above, the positive and negative
+# matrices cover all 17 configurations in the existing ordinary stereocenter
+# table. Se and Te are aromatic-capable spellings but have no corresponding
+# ordinary tetrahedral configuration; they must still fail through the same
+# existing stereocenter model rather than through a loader whitelist.
+for invalid in (
+    "C[se@]1cc(C)ccc1",
+    "C[te@]1cc(C)ccc1",
+):
+    assert_strict_rejects(invalid)
+    assert_tolerant_omits_stereo(invalid)
 
-# ---------------------------------------------------------------------------
-# Boundary cases: local stereocenter rules are not enough
-# ---------------------------------------------------------------------------
-
-# Aromatic carbon can look tetrahedral only if both incident aromatic bonds are
-# made single locally. No globally valid benzene-like Kekule state permits that
-# assignment, so it must still be rejected.
-invalid_aromatic_carbon = "C[c@]1cc(C)cc1"
-assert_strict_rejects(invalid_aromatic_carbon)
-assert_tolerant_omits_stereo(invalid_aromatic_carbon)
+# The same ordinary N degree-3 configuration can be valid in an asymmetric
+# pyrrole-like producer fixture above but invalid when the two ring paths are
+# symmetry-equivalent. The generic fallback must not turn configuration-table
+# eligibility into unconditional acceptance.
+for invalid in (
+    "C[n@]1cccc1",
+    "C[n@@]1cccc1",
+):
+    assert_strict_rejects(invalid)
+    assert_tolerant_omits_stereo(invalid)
 
 # In tolerant mode an invalid aromatic center must be omitted without removing
 # a valid fallback center in another component. The sanitized result must then
-# be consumable strictly.
+# be consumable strictly, regardless of component order.
+invalid_aromatic_carbon = globally_incompatible_configurations[0][1]
 for mixed_tolerant_input in (
     PUBCHEM_S_AROMATIC + "." + invalid_aromatic_carbon,
     invalid_aromatic_carbon + "." + PUBCHEM_S_AROMATIC,
@@ -197,36 +257,8 @@ for mixed_tolerant_input in (
     assert stereo_count(mixed_tolerant) == s_stereo
     mixed_tolerant_canonical = mixed_tolerant.canonicalSmiles()
 
-    # Tolerant cleanup must produce a structure that is independently valid in
-    # strict mode, regardless of which component was encountered first.
     strict_mixed_tolerant = Indigo().loadMolecule(mixed_tolerant_canonical)
     assert stereo_count(strict_mixed_tolerant) == s_stereo
-
-# Indigo already has aromatic silicon fixtures whose canonical form uses
-# uppercase Si plus explicit aromatic ':' bonds. A Si tetrahedral configuration
-# requires zero double bonds, but this aromatic ring requires Si to participate
-# in the Kekule matching. This specifically proves that fallback detection uses
-# actual aromatic bonds rather than lowercase atom spelling.
-invalid_aromatic_silicon = "C[Si@]1:ccccc:1"
-assert_strict_rejects(invalid_aromatic_silicon)
-assert_tolerant_omits_stereo(invalid_aromatic_silicon)
-
-# Tetracoordinate B- is an ordinary Indigo stereocenter class, but forcing it
-# into this aromatic ring does not by itself make a globally valid aromatic
-# stereocenter. This guards against replacing an element whitelist with
-# unconditional "any aromatic atom" acceptance.
-invalid_aromatic_boron = "C[B@-]1(F):c(C):c:c:c:1"
-assert_strict_rejects(invalid_aromatic_boron)
-
-# Se and Te are aromatic-capable in Indigo, but Indigo's current tetrahedral
-# stereocenter table has no matching configurations. The generic fallback must
-# therefore fail through the existing stereocenter model, not a loader list.
-for invalid in (
-    "C[se@]1cc(C)cc1",
-    "C[te@]1cc(C)cc1",
-):
-    assert_strict_rejects(invalid)
-    assert_tolerant_omits_stereo(invalid)
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +291,26 @@ assert_canonical_roundtrip(joint_aromatic, joint_stereo)
 # ---------------------------------------------------------------------------
 # Post-SMILES chemistry changes must not leave stale fallback stereo
 # ---------------------------------------------------------------------------
+
+# Radicals are intentionally not a SmilesLoader-specific exclusion. They still
+# participate in Indigo's existing valence/aromaticity models. On the production
+# P center a radical changes the allowed connectivity so no globally valid
+# degree-4/one-double Kekule assignment remains: strict mode rejects the stale
+# stereo and tolerant mode removes it while preserving the radical itself.
+p_radical_smiles = PUBCHEM_P_AROMATIC + " |^1:3|"
+assert_strict_rejects(p_radical_smiles)
+p_radical_tolerant = assert_tolerant_omits_stereo(p_radical_smiles)
+assert p_radical_tolerant.getAtom(3).radicalElectrons() > 0
+
+# A chemistry edit in an unrelated component advances the edit revision and
+# therefore forces final aromatic revalidation. It must not invalidate a center
+# whose own chemistry is unchanged.
+s_atom_count = Indigo().loadMolecule(PUBCHEM_S_AROMATIC).countAtoms()
+cx_unrelated_rsite = (
+    PUBCHEM_S_AROMATIC + ".[*] |$" + ";" * s_atom_count + "_R1$|"
+)
+cx_unrelated = Indigo().loadMolecule(cx_unrelated_rsite)
+assert stereo_count(cx_unrelated) == s_stereo
 
 # Benign coordinates edit molecule state but not chemistry; stereo must survive.
 coordinates = ";".join("%d,%d," % (i, i % 3) for i in range(14))

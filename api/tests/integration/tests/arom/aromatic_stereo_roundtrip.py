@@ -107,6 +107,30 @@ assert connectivity_roundtrip.canonicalSmiles() == connectivity_aromatic
 
 invalid_aromatic = "C[c@]1ccccc1"
 
+# The fallback is sulfur-specific. A normal N-substituted pyrrole-like
+# aromatic system is valid, but explicit tetrahedral chirality on that
+# aromatic nitrogen must not become legal through Kekule fallback.
+neutral_aromatic_n = "Cn1cccc1"
+indigo.loadMolecule(neutral_aromatic_n)
+
+invalid_aromatic_n = ("C[n@]1cccc1", "C[n@@]1cccc1")
+for invalid in invalid_aromatic_n:
+    try:
+        indigo.loadMolecule(invalid)
+    except IndigoException:
+        pass
+    else:
+        raise AssertionError("aromatic nitrogen chirality was accepted")
+
+indigo.setOption("ignore-stereochemistry-errors", True)
+try:
+    tolerant_aromatic_n = [indigo.loadMolecule(value) for value in invalid_aromatic_n]
+finally:
+    indigo.setOption("ignore-stereochemistry-errors", False)
+
+for molecule in tolerant_aromatic_n:
+    assert len([atom for atom in molecule.iterateStereocenters()]) == 0
+
 for invalid in (
     invalid_aromatic,
     invalid_aromatic + "." + expected_aromatic,

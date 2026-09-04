@@ -77,27 +77,35 @@ namespace
             return false;
 
         const Vertex& vertex = mol->getVertex(atom_idx);
-        if (vertex.degree() <= 2 || vertex.degree() > 4)
+
+        // This fallback is intentionally limited to the neutral, degree-3
+        // aromatic sulfur configuration that Indigo can emit for the PubChem
+        // round-trip case. Do not generalize ordinary tetrahedral rules to
+        // arbitrary aromatic elements.
+        if (mol->getAtomNumber(atom_idx) != ELEM_S || mol->getAtomCharge(atom_idx) != 0 || mol->getAtomRadical(atom_idx) != 0 ||
+            vertex.degree() != 3)
             return false;
 
         Array<int> vertices;
         Array<int> aromatic_bonds;
         vertices.push(atom_idx);
 
+        int non_aromatic_single_bonds = 0;
         for (int i = vertex.neiBegin(); i != vertex.neiEnd(); i = vertex.neiNext(i))
         {
             const int edge_idx = vertex.neiEdge(i);
             const int bond_order = mol->getBondOrder(edge_idx);
 
-            if (bond_order == BOND_TRIPLE)
-                return false;
-
             vertices.push(vertex.neiVertex(i));
             if (bond_order == BOND_AROMATIC)
                 aromatic_bonds.push(edge_idx);
+            else if (bond_order == BOND_SINGLE)
+                non_aromatic_single_bonds++;
+            else
+                return false;
         }
 
-        if (aromatic_bonds.size() == 0)
+        if (aromatic_bonds.size() != 2 || non_aromatic_single_bonds != 1)
             return false;
 
         Molecule local;

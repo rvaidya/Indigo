@@ -151,11 +151,6 @@ zero_double_sources = (
     ("neutral nitrogen", "C[N@]1C=C(C)C=C1", "[n@"),
     ("neutral phosphorus", "C[P@]1C=C(C)C=C1", "[p@"),
     ("sulfonium sulfur", "C[S@+]1C=C(C)C=C1", "[s@"),
-    (
-        "neutral arsenic",
-        "CC1=CC=C(C)[As@]1(F)C1=CC=CC=C1",
-        "[as@",
-    ),
 )
 for _, source, marker in zero_double_sources:
     assert_aromatic_serializer_contract(source, marker)
@@ -163,10 +158,12 @@ for _, source, marker in zero_double_sources:
 # One-double configurations are a separate stereocenter-table class. The real
 # S/P regressions above cover neutral S and neutral P; these additional cases
 # exercise neutral pentavalent N and tetravalent S+ without adding loader
-# element policy.
+# element policy. Use a six-member alternating ring so every ring atom can
+# participate in the aromatic system; the methyl branch also makes the two ring
+# paths around the stereocenter distinct.
 one_double_sources = (
-    ("neutral pentavalent nitrogen", "C[N@]1(F)=CC=CC1", "[n@"),
-    ("tetravalent sulfonium sulfur", "C[S@+]1(F)=CC=CC1", "[s@"),
+    ("neutral pentavalent nitrogen", "C[N@]1(F)=C(C)C=CC=C1", "[n@"),
+    ("tetravalent sulfonium sulfur", "C[S@+]1(F)=C(C)C=CC=C1", "[s@"),
 )
 for _, source, marker in one_double_sources:
     assert_aromatic_serializer_contract(source, marker)

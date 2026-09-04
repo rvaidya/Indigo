@@ -82,7 +82,7 @@ namespace
         // aromatic sulfur configuration that Indigo can emit for the PubChem
         // round-trip case. Do not generalize ordinary tetrahedral rules to
         // arbitrary aromatic elements.
-        if (mol->getAtomNumber(atom_idx) != ELEM_S || mol->getAtomCharge(atom_idx) != 0 || mol->getAtomRadical(atom_idx) != 0 ||
+        if (mol->getAtomNumber(atom_idx) != ELEM_S || mol->getAtomCharge(atom_idx) != 0 || mol->getAtomRadical_NoThrow(atom_idx, -1) != 0 ||
             vertex.degree() != 3)
             return false;
 

@@ -181,18 +181,28 @@ producer_configuration_sources = (
     (
         "S neutral degree 4 / 2 doubles",
         "C[S@]1(=O)=C(C)C=CC=C1",
-        ("[s@", "[S@"),
+        "[s@",
     ),
 )
 for _, source, marker in producer_configuration_sources:
     assert_aromatic_serializer_contract(source, marker)
+
+# P+ degree 4 / 0 double has a known persistent five-member aromatic
+# representation from rev1. Keep both parities as direct saver/reload
+# regressions: unlike the symmetric neutral-N input, canonicalization preserves
+# this stereo, so it belongs to the original aromatic-stereo round-trip class.
+for valid_p_plus in (
+    "C[p@+]1(F)cccc1",
+    "C[p@@+]1(F)cccc1",
+):
+    assert_canonical_roundtrip(valid_p_plus, 1)
 
 # These topology-specific fixtures can be made locally plausible by assigning
 # incident aromatic bonds single/double, but they do not have a globally valid
 # Indigo aromatic/Kekule realization as drawn. Exercise both strict rejection
 # and tolerant stereo removal so broadening the generic fallback cannot silently
 # legalize them. A stereocenter-table configuration can still have a valid
-# aromatic realization in a different topology (P+ is exercised below).
+# aromatic realization in a different topology (P+ is exercised above).
 globally_incompatible_configurations = (
     ("C neutral degree 3 / 0 double", "C[c@]1cc(C)ccc1"),
     (

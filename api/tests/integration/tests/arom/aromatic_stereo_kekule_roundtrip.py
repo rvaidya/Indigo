@@ -241,16 +241,24 @@ for invalid in (
     assert_tolerant_omits_stereo(invalid)
 
 # Rev2 intentionally allows a fallback candidate with exactly one incident
-# aromatic bond; rev1 required at least two. Prove that this broader entry path
-# fails safely when the aromatic bond cannot participate in a whole-molecule
-# Kekule realization. The non-chiral control establishes that the structure and
-# explicit aromatic bond are otherwise loadable.
+# aromatic bond; rev1 required at least two. This explicit-aromatic-bond P+
+# center has four distinct substituents and a whole-molecule Kekule assignment,
+# so both parities must survive canonical save/reload. This specifically proves
+# that fallback eligibility is based on actual aromatic-bond participation,
+# rather than lowercase aromatic atom spelling or a two-bond ring assumption.
 one_aromatic_bond_control = "C[P+](F)(Cl):c1ccccc1"
-one_aromatic_bond_stereo = "C[P@+](F)(Cl):c1ccccc1"
 one_aromatic_control = Indigo().loadMolecule(one_aromatic_bond_control)
 assert stereo_count(one_aromatic_control) == 0
-assert_strict_rejects(one_aromatic_bond_stereo)
-assert_tolerant_omits_stereo(one_aromatic_bond_stereo)
+
+one_aromatic_bond_canonicals = []
+for one_aromatic_bond_stereo in (
+    "C[P@+](F)(Cl):c1ccccc1",
+    "C[P@@+](F)(Cl):c1ccccc1",
+):
+    one_aromatic_bond_canonicals.append(
+        assert_canonical_roundtrip(one_aromatic_bond_stereo, 1)
+    )
+assert one_aromatic_bond_canonicals[0] != one_aromatic_bond_canonicals[1]
 
 # The original failure class requires more than accepting an explicit aromatic
 # @ token: Indigo's saver must itself preserve that stereo while aromatizing the

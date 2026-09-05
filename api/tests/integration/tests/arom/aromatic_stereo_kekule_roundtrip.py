@@ -49,8 +49,10 @@ def assert_aromatic_serializer_contract(source, aromatic_marker):
     assert source_stereo > 0
 
     # The bug class is created by retaining a valid ordinary stereocenter while
-    # its ring bonds become aromatic. Exercise the real producer path.
+    # its ring bonds become aromatic. Exercise the real producer path and retain
+    # the canonical Kekule source as a chemistry-integrity baseline.
     molecule.dearomatize()
+    source_kekule = molecule.canonicalSmiles()
     molecule.aromatize()
     aromatic = molecule.canonicalSmiles()
 
@@ -67,6 +69,11 @@ def assert_aromatic_serializer_contract(source, aromatic_marker):
     reloaded = consumer.loadMolecule(aromatic)
     assert stereo_count(reloaded) == source_stereo
     assert reloaded.canonicalSmiles() == aromatic
+
+    # A successful reload must preserve the represented Kekule chemistry, not
+    # merely produce a self-consistent aromatic string.
+    reloaded.dearomatize()
+    assert reloaded.canonicalSmiles() == source_kekule
     return aromatic, source_stereo
 
 
@@ -181,18 +188,28 @@ producer_configuration_sources = (
     (
         "S neutral degree 4 / 2 doubles",
         "C[S@]1(=O)=C(C)C=CC=C1",
-        ("[s@", "[S@"),
+        "[s@",
     ),
 )
 for _, source, marker in producer_configuration_sources:
     assert_aromatic_serializer_contract(source, marker)
+
+# P+ degree 4 / 0 double has a known persistent five-member aromatic
+# representation from rev1. Keep both parities as direct saver/reload
+# regressions: unlike the symmetric neutral-N input, canonicalization preserves
+# this stereo, so it belongs to the original aromatic-stereo round-trip class.
+for valid_p_plus in (
+    "C[p@+]1(F)cccc1",
+    "C[p@@+]1(F)cccc1",
+):
+    assert_canonical_roundtrip(valid_p_plus, 1)
 
 # These topology-specific fixtures can be made locally plausible by assigning
 # incident aromatic bonds single/double, but they do not have a globally valid
 # Indigo aromatic/Kekule realization as drawn. Exercise both strict rejection
 # and tolerant stereo removal so broadening the generic fallback cannot silently
 # legalize them. A stereocenter-table configuration can still have a valid
-# aromatic realization in a different topology (P+ is exercised below).
+# aromatic realization in a different topology (P+ is exercised above).
 globally_incompatible_configurations = (
     ("C neutral degree 3 / 0 double", "C[c@]1cc(C)ccc1"),
     (
@@ -228,6 +245,18 @@ for invalid in (
 ):
     assert_strict_rejects(invalid)
     assert_tolerant_omits_stereo(invalid)
+
+# Rev2 intentionally allows a fallback candidate with exactly one incident
+# aromatic bond; rev1 required at least two. Prove that this broader entry path
+# fails safely when the aromatic bond cannot participate in a whole-molecule
+# Kekule realization. The non-chiral control establishes that the structure and
+# explicit aromatic bond are otherwise loadable.
+one_aromatic_bond_control = "C[P+](F)(Cl):c1ccccc1"
+one_aromatic_bond_stereo = "C[P@+](F)(Cl):c1ccccc1"
+one_aromatic_control = Indigo().loadMolecule(one_aromatic_bond_control)
+assert stereo_count(one_aromatic_control) == 0
+assert_strict_rejects(one_aromatic_bond_stereo)
+assert_tolerant_omits_stereo(one_aromatic_bond_stereo)
 
 # The original failure class requires more than accepting an explicit aromatic
 # @ token: Indigo's saver must itself preserve that stereo while aromatizing the

@@ -49,8 +49,10 @@ def assert_aromatic_serializer_contract(source, aromatic_marker):
     assert source_stereo > 0
 
     # The bug class is created by retaining a valid ordinary stereocenter while
-    # its ring bonds become aromatic. Exercise the real producer path.
+    # its ring bonds become aromatic. Exercise the real producer path and retain
+    # the canonical Kekule source as a chemistry-integrity baseline.
     molecule.dearomatize()
+    source_kekule = molecule.canonicalSmiles()
     molecule.aromatize()
     aromatic = molecule.canonicalSmiles()
 
@@ -67,6 +69,11 @@ def assert_aromatic_serializer_contract(source, aromatic_marker):
     reloaded = consumer.loadMolecule(aromatic)
     assert stereo_count(reloaded) == source_stereo
     assert reloaded.canonicalSmiles() == aromatic
+
+    # A successful reload must preserve the represented Kekule chemistry, not
+    # merely produce a self-consistent aromatic string.
+    reloaded.dearomatize()
+    assert reloaded.canonicalSmiles() == source_kekule
     return aromatic, source_stereo
 
 
@@ -238,6 +245,18 @@ for invalid in (
 ):
     assert_strict_rejects(invalid)
     assert_tolerant_omits_stereo(invalid)
+
+# Rev2 intentionally allows a fallback candidate with exactly one incident
+# aromatic bond; rev1 required at least two. Prove that this broader entry path
+# fails safely when the aromatic bond cannot participate in a whole-molecule
+# Kekule realization. The non-chiral control establishes that the structure and
+# explicit aromatic bond are otherwise loadable.
+one_aromatic_bond_control = "C[P+](F)(Cl):c1ccccc1"
+one_aromatic_bond_stereo = "C[P@+](F)(Cl):c1ccccc1"
+one_aromatic_control = Indigo().loadMolecule(one_aromatic_bond_control)
+assert stereo_count(one_aromatic_control) == 0
+assert_strict_rejects(one_aromatic_bond_stereo)
+assert_tolerant_omits_stereo(one_aromatic_bond_stereo)
 
 # The original failure class requires more than accepting an explicit aromatic
 # @ token: Indigo's saver must itself preserve that stereo while aromatizing the

@@ -229,25 +229,12 @@ for invalid in (
     assert_strict_rejects(invalid)
     assert_tolerant_omits_stereo(invalid)
 
-# Direct aromatic forms exercise loader compatibility independently of the
-# producer fixtures above. The five-member neutral-N case is a valid
-# pyrrole-like realization under Indigo's existing models; both parities must
-# reload without the original aromatic-bond stereocenter failure.
-for valid in (
-    "C[n@]1cccc1",
-    "C[n@@]1cccc1",
-):
-    assert_canonical_roundtrip(valid, 1)
-
-# Rev1 already covered the corresponding five-member P+ configuration. Keep it
-# as a positive direct-aromatic regression: the six-member P+ fixture in the
-# incompatibility matrix above is deliberately topology-specific and must still
-# reject because no compatible Kekule assignment exists there.
-for valid in (
-    "C[p@+]1(F)cccc1",
-    "C[p@@+]1(F)cccc1",
-):
-    assert_canonical_roundtrip(valid, 1)
+# The original failure class requires more than accepting an explicit aromatic
+# @ token: Indigo's saver must itself preserve that stereo while aromatizing the
+# center. The producer fixtures above are therefore the positive contract. Do
+# not treat symmetric explicit inputs such as C[n@]1cccc1 as positive round-trip
+# cases; Indigo can parse the locally possible center but canonicalization
+# correctly drops non-stereogenic @ when the two ring paths are equivalent.
 
 # In tolerant mode an invalid aromatic center must be omitted without removing
 # a valid fallback center in another component. The sanitized result must then

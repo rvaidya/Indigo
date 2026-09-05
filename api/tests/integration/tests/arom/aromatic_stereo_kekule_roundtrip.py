@@ -166,8 +166,9 @@ for p_variant in (PUBCHEM_P_AROMATIC, p_opposite):
 # The six configurations below have an Indigo BASIC-aromaticity producer path:
 # a valid ordinary Kekule stereocenter can be aromatized while retaining @/@@.
 # The real PubChem sulfur regression above covers neutral S, degree 3, one
-# double bond. P+ degree 4 / 0 double is covered separately below by the known
-# persistent five-member aromatic form.
+# double bond. Other ordinary stereocenter-table rows are covered below as
+# rejection boundaries when their required Kekule connectivity is incompatible
+# with Indigo's aromaticity model.
 producer_configuration_sources = (
     ("N neutral degree 3 / 0 double", "C[N@]1C=C(C)C=C1", "[n@"),
     ("P neutral degree 3 / 0 double", "C[P@]1C=C(C)C=C1", "[p@"),
@@ -191,23 +192,12 @@ producer_configuration_sources = (
 for _, source, marker in producer_configuration_sources:
     assert_aromatic_serializer_contract(source, marker)
 
-# P+ degree 4 / 0 double has a known persistent five-member aromatic
-# representation from rev1. Keep both parities as direct saver/reload
-# regressions: unlike the symmetric neutral-N input, canonicalization preserves
-# this stereo, so it belongs to the original aromatic-stereo round-trip class.
-for valid_p_plus in (
-    "C[p@+]1(F)cccc1",
-    "C[p@@+]1(F)cccc1",
-):
-    p_plus_canonical = assert_canonical_roundtrip(valid_p_plus, 1)
-    assert "[p@" in p_plus_canonical
-
 # These topology-specific fixtures can be made locally plausible by assigning
 # incident aromatic bonds single/double, but they do not have a globally valid
 # Indigo aromatic/Kekule realization as drawn. Exercise both strict rejection
 # and tolerant stereo removal so broadening the generic fallback cannot silently
-# legalize them. A stereocenter-table configuration can still have a valid
-# aromatic realization in a different topology (P+ is exercised above).
+# legalize them. These are topology/model rejection cases, not a second
+# element/charge whitelist maintained by SmilesLoader.
 globally_incompatible_configurations = (
     ("C neutral degree 3 / 0 double", "C[c@]1cc(C)ccc1"),
     (
@@ -231,6 +221,8 @@ globally_incompatible_configurations = (
         "C[S@]1(=O):c(C):c:c:c:c:1",
     ),
     ("P+ degree 4 / 0 double", "C[p@+]1(F)cc(C)ccc1"),
+    ("P+ degree 4 / 0 double, five-member", "C[p@+]1(F)cccc1"),
+    ("P+ degree 4 / 0 double, five-member opposite", "C[p@@+]1(F)cccc1"),
 )
 for _, invalid in globally_incompatible_configurations:
     assert_strict_rejects(invalid)

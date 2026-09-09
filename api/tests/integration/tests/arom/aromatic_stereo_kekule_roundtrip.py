@@ -216,14 +216,22 @@ assert Indigo().loadMolecule(si_source_canonical)
 si_producer = Indigo().loadMolecule(PUBCHEM_SI_SOURCE)
 si_producer.aromatize()
 si_aromatized = si_producer.canonicalSmiles()
+assert si_aromatized == si_source_canonical
 si_reloaded = Indigo().loadMolecule(si_aromatized)
 assert stereo_count(si_reloaded) == 1
+
+# Repeated aromatization must be stable after an incompatible component has
+# been left in its original concrete bond representation.
+si_producer.aromatize()
+assert si_producer.canonicalSmiles() == si_aromatized
 
 si_opposite_source = PUBCHEM_SI_SOURCE.replace("[Si@]", "[Si@@]", 1)
 si_opposite = Indigo().loadMolecule(si_opposite_source)
 assert stereo_count(si_opposite) == 1
+si_opposite_source_canonical = si_opposite.canonicalSmiles()
 si_opposite.aromatize()
 si_opposite_canonical = si_opposite.canonicalSmiles()
+assert si_opposite_canonical == si_opposite_source_canonical
 si_opposite_reloaded = Indigo().loadMolecule(si_opposite_canonical)
 assert stereo_count(si_opposite_reloaded) == 1
 assert si_opposite_canonical != si_aromatized
@@ -248,7 +256,11 @@ for mixed_source in (
     mixed_canonical = mixed_producer.canonicalSmiles()
     mixed_reloaded = Indigo().loadMolecule(mixed_canonical)
     assert stereo_count(mixed_reloaded) == 1 + s_stereo
-    assert "[s@" in mixed_canonical
+    mixed_components = mixed_canonical.split(".")
+    si_component = next(component for component in mixed_components if "[Si" in component)
+    s_component = next(component for component in mixed_components if "[s@" in component)
+    assert ":" not in si_component
+    assert "[s@" in s_component
 
 # These topology-specific fixtures can be made locally plausible by assigning
 # incident aromatic bonds single/double, but they do not have a globally valid

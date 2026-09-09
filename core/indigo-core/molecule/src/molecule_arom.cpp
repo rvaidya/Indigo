@@ -22,6 +22,7 @@
 #include "base_cpp/gray_codes.h"
 #include "graph/cycle_enumerator.h"
 #include "molecule/elements.h"
+#include "molecule/molecule_aromatic_stereo.h"
 #include "molecule/molecule.h"
 #include "molecule/query_molecule.h"
 
@@ -504,9 +505,12 @@ bool MoleculeAromatizer::aromatizeBonds(Molecule& mol, const AromaticityOptions&
     aromatizer.precalculatePiLabels();
     aromatizer.aromatize();
 
+    std::vector<bool> suppressed_bonds;
+    AromaticStereoValidator::suppressIncompatibleAromatization(mol, aromatizer.isBondAromaticArray(), suppressed_bonds);
+
     bool aromatic_bond_found = false;
     for (int e_idx = mol.edgeBegin(); e_idx < mol.edgeEnd(); e_idx = mol.edgeNext(e_idx))
-        if (aromatizer.isBondAromatic(e_idx))
+        if (aromatizer.isBondAromatic(e_idx) && (suppressed_bonds.empty() || !suppressed_bonds[e_idx]))
         {
             mol.setBondOrder(e_idx, BOND_AROMATIC, true);
             aromatic_bond_found = true;

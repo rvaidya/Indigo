@@ -41,6 +41,12 @@ namespace indigo
 
         bool addStereocenter(int atom_idx);
 
+        // Given the bonds an aromatizer proposes to mark aromatic, suppress
+        // only newly proposed bonds in aromatic components whose existing
+        // serializable tetrahedral stereocenters cannot be jointly realized.
+        static void suppressIncompatibleAromatization(Molecule& molecule, const byte* proposed_aromatic_bonds,
+                                                      std::vector<bool>& suppressed_bonds);
+
     private:
         struct BondOrder
         {

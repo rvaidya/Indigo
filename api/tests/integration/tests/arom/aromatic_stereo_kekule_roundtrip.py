@@ -36,6 +36,18 @@ def stereo_count(molecule):
     return len([atom for atom in molecule.iterateStereocenters()])
 
 
+def stereocenter_incident_bond_orders(molecule, symbol=None):
+    centers = [
+        atom
+        for atom in molecule.iterateStereocenters()
+        if symbol is None or atom.symbol() == symbol
+    ]
+    return [
+        [neighbor.bond().bondOrder() for neighbor in atom.iterateNeighbors()]
+        for atom in centers
+    ]
+
+
 def assert_canonical_roundtrip(smiles, expected_stereo=None):
     producer = Indigo()
     molecule = producer.loadMolecule(smiles)
@@ -216,24 +228,39 @@ assert Indigo().loadMolecule(si_source_canonical)
 si_producer = Indigo().loadMolecule(PUBCHEM_SI_SOURCE)
 si_producer.aromatize()
 si_aromatized = si_producer.canonicalSmiles()
-assert si_aromatized == si_source_canonical
+
+# Aromatization may still proceed in other independently valid Si/O aromatic
+# components. The required invariant is local to the retained stereocenter:
+# none of its incident bonds may become aromatic when that aromatic component
+# cannot realize the existing tetrahedral stereo.
+si_bond_orders = stereocenter_incident_bond_orders(si_producer, "Si")
+assert len(si_bond_orders) == 1
+assert 4 not in si_bond_orders[0]  # BOND_AROMATIC
+
 si_reloaded = Indigo().loadMolecule(si_aromatized)
 assert stereo_count(si_reloaded) == 1
+reloaded_si_bond_orders = stereocenter_incident_bond_orders(si_reloaded, "Si")
+assert len(reloaded_si_bond_orders) == 1
+assert 4 not in reloaded_si_bond_orders[0]
 
-# Repeated aromatization must be stable after an incompatible component has
+# Repeated aromatization must be stable after the incompatible component has
 # been left in its original concrete bond representation.
 si_producer.aromatize()
 assert si_producer.canonicalSmiles() == si_aromatized
+assert 4 not in stereocenter_incident_bond_orders(si_producer, "Si")[0]
 
 si_opposite_source = PUBCHEM_SI_SOURCE.replace("[Si@]", "[Si@@]", 1)
 si_opposite = Indigo().loadMolecule(si_opposite_source)
 assert stereo_count(si_opposite) == 1
-si_opposite_source_canonical = si_opposite.canonicalSmiles()
 si_opposite.aromatize()
 si_opposite_canonical = si_opposite.canonicalSmiles()
-assert si_opposite_canonical == si_opposite_source_canonical
+si_opposite_bond_orders = stereocenter_incident_bond_orders(si_opposite, "Si")
+assert len(si_opposite_bond_orders) == 1
+assert 4 not in si_opposite_bond_orders[0]
+
 si_opposite_reloaded = Indigo().loadMolecule(si_opposite_canonical)
 assert stereo_count(si_opposite_reloaded) == 1
+assert 4 not in stereocenter_incident_bond_orders(si_opposite_reloaded, "Si")[0]
 assert si_opposite_canonical != si_aromatized
 
 si_achiral_source = PUBCHEM_SI_SOURCE.replace("[Si@]", "[Si]", 1)
@@ -256,11 +283,16 @@ for mixed_source in (
     mixed_canonical = mixed_producer.canonicalSmiles()
     mixed_reloaded = Indigo().loadMolecule(mixed_canonical)
     assert stereo_count(mixed_reloaded) == 1 + s_stereo
-    mixed_components = mixed_canonical.split(".")
-    si_component = next(component for component in mixed_components if "[Si" in component)
-    s_component = next(component for component in mixed_components if "[s@" in component)
-    assert ":" not in si_component
-    assert "[s@" in s_component
+
+    # The Si stereocenter's own aromatic component is suppressed, while the
+    # disconnected sulfur component remains aromatized. Other valid Si/O
+    # aromatic components inside the same Si molecule may still aromatize.
+    mixed_si_bond_orders = stereocenter_incident_bond_orders(
+        mixed_producer, "Si"
+    )
+    assert len(mixed_si_bond_orders) == 1
+    assert 4 not in mixed_si_bond_orders[0]
+    assert "[s@" in mixed_canonical
 
 # These topology-specific fixtures can be made locally plausible by assigning
 # incident aromatic bonds single/double, but they do not have a globally valid

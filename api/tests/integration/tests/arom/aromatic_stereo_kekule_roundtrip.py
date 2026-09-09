@@ -20,6 +20,17 @@ PUBCHEM_P_SOURCE = "CN(C)P1(=NP(=NP(=N1)(F)F)(N(C)C)F)N(C)C"
 # PubChem reconciliation for this compound (internal compounds.id 16419269).
 PUBCHEM_P_AROMATIC = "CN(C)[p@]1(F)[n][p](F)(F)[n][p]([n]1)(N(C)C)N(C)C"
 
+# PubChem CID 59917577. Official Indigo 1.45 and the rev2 baseline both
+# reproduce the same producer-side failure: aromatize() retains the valid Si
+# tetrahedral stereocenter while converting its siloxane ring to an aromatic
+# bond representation that strict Indigo loading cannot reload.
+PUBCHEM_SI_SOURCE = (
+    "C[Si]1O[Si]O[Si](O[Si@](O[Si](O[Si](O1)C)"
+    "O[Si]2O[Si](O[Si](O[Si](O[Si](O[Si](O2)O[Si](O)O)"
+    "O[Si](O)O[Si](O)O)O[Si](O)O)C)O[Si](C)O)"
+    "O[Si](O)O)O"
+)
+
 
 def stereo_count(molecule):
     return len([atom for atom in molecule.iterateStereocenters()])
@@ -191,6 +202,53 @@ producer_configuration_sources = (
 )
 for _, source, marker in producer_configuration_sources:
     assert_aromatic_serializer_contract(source, marker)
+
+# Aromatization must never create a bond representation that makes existing
+# serializable tetrahedral stereo impossible. This is a producer invariant, not
+# a silicon-specific rule: preserve the source chemistry/stereo when an aromatic
+# component cannot support the retained center, while still allowing the same
+# chemistry to aromatize when no stereocenter constrains it.
+si_source = Indigo().loadMolecule(PUBCHEM_SI_SOURCE)
+assert stereo_count(si_source) == 1
+si_source_canonical = si_source.canonicalSmiles()
+assert Indigo().loadMolecule(si_source_canonical)
+
+si_producer = Indigo().loadMolecule(PUBCHEM_SI_SOURCE)
+si_producer.aromatize()
+si_aromatized = si_producer.canonicalSmiles()
+si_reloaded = Indigo().loadMolecule(si_aromatized)
+assert stereo_count(si_reloaded) == 1
+
+si_opposite_source = PUBCHEM_SI_SOURCE.replace("[Si@]", "[Si@@]", 1)
+si_opposite = Indigo().loadMolecule(si_opposite_source)
+assert stereo_count(si_opposite) == 1
+si_opposite.aromatize()
+si_opposite_canonical = si_opposite.canonicalSmiles()
+si_opposite_reloaded = Indigo().loadMolecule(si_opposite_canonical)
+assert stereo_count(si_opposite_reloaded) == 1
+assert si_opposite_canonical != si_aromatized
+
+si_achiral_source = PUBCHEM_SI_SOURCE.replace("[Si@]", "[Si]", 1)
+si_achiral = Indigo().loadMolecule(si_achiral_source)
+assert stereo_count(si_achiral) == 0
+si_achiral.aromatize()
+si_achiral_canonical = si_achiral.canonicalSmiles()
+assert ":" in si_achiral_canonical
+assert Indigo().loadMolecule(si_achiral_canonical)
+
+# A stereo-incompatible aromatic component must not suppress aromatization in a
+# disconnected component whose stereo is compatible with Indigo's aromatic
+# model. Exercise both component orders to guard against hidden mutable state.
+for mixed_source in (
+    PUBCHEM_SI_SOURCE + "." + PUBCHEM_S_SOURCE,
+    PUBCHEM_S_SOURCE + "." + PUBCHEM_SI_SOURCE,
+):
+    mixed_producer = Indigo().loadMolecule(mixed_source)
+    mixed_producer.aromatize()
+    mixed_canonical = mixed_producer.canonicalSmiles()
+    mixed_reloaded = Indigo().loadMolecule(mixed_canonical)
+    assert stereo_count(mixed_reloaded) == 1 + s_stereo
+    assert "[s@" in mixed_canonical
 
 # These topology-specific fixtures can be made locally plausible by assigning
 # incident aromatic bonds single/double, but they do not have a globally valid

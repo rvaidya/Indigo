@@ -187,8 +187,8 @@ namespace
     // Aromatization deliberately preserves calculated connectivity/valence
     // while replacing concrete bonds with aromatic ones. Those derived caches
     // are useful to the in-memory molecule, but they are not serialized into
-    // SMILES. Rebuild the validation graph from explicit atom properties and
-    // bond orders so the producer proves the same state a fresh consumer sees.
+    // SMILES. Rebuild the validation graph from state that the serialized
+    // molecule can actually reconstruct.
     bool buildSerializationValidationMolecule(Molecule& source, Molecule& target, Array<int>& mapping)
     {
         target.setValenceMode(source.getValenceMode());
@@ -220,9 +220,11 @@ namespace
             if (radical > 0)
                 target.setAtomRadical(target_idx, radical);
 
-            if (source.isExplicitValenceSet(v_idx))
-                target.setExplicitValence(target_idx, source.getExplicitValence(v_idx));
-
+            // Do not copy explicit_valence here. setBondOrder(..., true) may
+            // cause getAtomValence() to promote a calculated unusual valence
+            // into that flag while preserving the original Kekule state. Plain
+            // SMILES does not serialize an explicit valence field, so carrying
+            // it into this validation graph would retain producer-only state.
             if (source.isImplicitHSet(v_idx))
                 target.setImplicitH(target_idx, source.getImplicitH(v_idx));
         }

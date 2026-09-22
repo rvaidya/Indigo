@@ -40,8 +40,7 @@ void AromaticStereoValidator::_ensureDearomatizations()
 
 bool AromaticStereoValidator::_collectCenterCandidates(int atom_idx, CenterCandidates& center)
 {
-    if (_mol == nullptr || atom_idx < 0 || atom_idx >= _mol->vertexEnd() || !_mol->hasVertex(atom_idx) ||
-        _mol->getAtomAromaticity(atom_idx) != ATOM_AROMATIC)
+    if (_mol == nullptr || atom_idx < 0 || atom_idx >= _mol->vertexEnd() || !_mol->hasVertex(atom_idx))
         return false;
 
     const Vertex& vertex = _mol->getVertex(atom_idx);
@@ -183,6 +182,62 @@ namespace
                 return true;
         }
         return false;
+    }
+
+    // Aromatization deliberately preserves calculated connectivity/valence
+    // while replacing concrete bonds with aromatic ones. Those derived caches
+    // are useful to the in-memory molecule, but they are not serialized into
+    // SMILES. Rebuild the validation graph from state that the serialized
+    // molecule can actually reconstruct.
+    bool buildSerializationValidationMolecule(Molecule& source, Molecule& target, Array<int>& mapping)
+    {
+        target.setValenceMode(source.getValenceMode());
+        target.setIgnoreBadValenceFlag(source.getIgnoreBadValenceFlag());
+
+        mapping.clear_resize(source.vertexEnd());
+        mapping.fffill();
+
+        for (int v_idx = source.vertexBegin(); v_idx < source.vertexEnd(); v_idx = source.vertexNext(v_idx))
+        {
+            // Keep the cache-neutral rebuild narrowly scoped to ordinary
+            // molecules. Preserve the previous validation path for special
+            // graph atoms rather than guessing at their serialization rules.
+            if (source.isPseudoAtom(v_idx) || source.isTemplateAtom(v_idx) || source.isRSite(v_idx))
+                return false;
+
+            const int target_idx = target.addAtom(source.getAtomNumber(v_idx));
+            mapping[v_idx] = target_idx;
+
+            const int charge = source.getAtomCharge(v_idx);
+            if (charge != 0)
+                target.setAtomCharge_Silent(target_idx, charge);
+
+            const int isotope = source.getAtomIsotope(v_idx);
+            if (isotope > 0)
+                target.setAtomIsotope(target_idx, isotope);
+
+            // Do not copy the stored radical cache here. Aromatization's
+            // keep-connectivity path can infer and cache radical states from
+            // the original Kekule representation. Ordinary canonical SMILES
+            // does not serialize those inferred radicals, so using them during
+            // validation can accept an aromatic graph that a fresh loader
+            // cannot reconstruct.
+            //
+            // Likewise, do not copy explicit_valence. setBondOrder(..., true)
+            // may cause getAtomValence() to promote a calculated unusual
+            // valence into that flag while preserving the original Kekule
+            // state. Plain SMILES does not serialize an explicit valence field.
+            if (source.isImplicitHSet(v_idx))
+                target.setImplicitH(target_idx, source.getImplicitH(v_idx));
+        }
+
+        for (int e_idx = source.edgeBegin(); e_idx < source.edgeEnd(); e_idx = source.edgeNext(e_idx))
+        {
+            const Edge& edge = source.getEdge(e_idx);
+            target.addBond_Silent(mapping[edge.beg], mapping[edge.end], source.getBondOrder(e_idx));
+        }
+
+        return true;
     }
 } // namespace
 
@@ -341,13 +396,22 @@ void AromaticStereoValidator::suppressIncompatibleAromatization(Molecule& mol, c
             local.setBondOrder(local_edge_idx, BOND_AROMATIC, true);
         }
 
-        AromaticStereoValidator validator(&local);
+        Molecule serialization_validation;
+        Array<int> serialization_mapping;
+        const bool rebuilt = buildSerializationValidationMolecule(local, serialization_validation, serialization_mapping);
+        Molecule* validation_molecule = rebuilt ? &serialization_validation : &local;
+
+        AromaticStereoValidator validator(validation_molecule);
         for (int atom_idx : component_stereocenters[component_idx])
-            if (!validator.addStereocenter(mapping[atom_idx]))
+        {
+            const int local_atom_idx = mapping[atom_idx];
+            const int validation_atom_idx = rebuilt ? serialization_mapping[local_atom_idx] : local_atom_idx;
+            if (!validator.addStereocenter(validation_atom_idx))
             {
                 blocked_components[component_idx] = true;
                 break;
             }
+        }
     }
 
     for (int e_idx = mol.edgeBegin(); e_idx < mol.edgeEnd(); e_idx = mol.edgeNext(e_idx))

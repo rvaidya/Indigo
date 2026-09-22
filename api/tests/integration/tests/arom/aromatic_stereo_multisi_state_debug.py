@@ -1,12 +1,4 @@
-import os
-import sys
-
-sys.path.append(
-    os.path.normpath(
-        os.path.join(os.path.abspath(__file__), "..", "..", "..", "common")
-    )
-)
-from env_indigo import *  # noqa
+from indigo import Indigo
 
 
 SOURCE = "O1[Si@]2O[Si@@](O[Si@@]3O[Si]1O[Si]O[Si]O3)O[Si]O[Si]O2"
@@ -36,7 +28,7 @@ def dump(label, molecule):
     )
     for atom in probe.iterateAtoms():
         print(
-            atom.index(),
+            atom.atomIndex(),
             safe(atom.symbol),
             safe(atom.degree),
             safe(atom.countImplicitHydrogens),
@@ -48,10 +40,12 @@ def dump(label, molecule):
         )
 
 
-source = Indigo().loadMolecule(SOURCE)
+indigo = Indigo()
+
+source = indigo.loadMolecule(SOURCE)
 dump("SOURCE AFTER LOAD", source)
 
-producer = Indigo().loadMolecule(SOURCE)
+producer = indigo.loadMolecule(SOURCE)
 producer.dearomatize()
 dump("SOURCE AFTER DEAROMATIZE", producer)
 
@@ -59,6 +53,6 @@ producer.aromatize()
 dump("IN-MEMORY PRODUCER AFTER AROMATIZE", producer)
 print("producer canonical:", producer.canonicalSmiles())
 
-fresh = Indigo().loadMolecule(ACHIRAL_AROMATIC)
+fresh = indigo.loadMolecule(ACHIRAL_AROMATIC)
 dump("FRESH ACHIRAL LOAD OF SAME AROMATIC GRAPH", fresh)
 print("fresh canonical:", fresh.canonicalSmiles())

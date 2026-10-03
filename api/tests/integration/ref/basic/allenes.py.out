@@ -1267,8 +1267,8 @@ M  END
 Molecules set: molecules/allenes/two-allenes.mol
 54
   countAlleneCenters = 2
-  Smiles: CC(F)=C=C(O)Cl.OC=C=CF
-  Cano Smiles: CC(F)=C=C(O)Cl.OC=C=CF
+  Smiles: OC=C=CF.CC(F)=C=C(O)Cl
+  Cano Smiles: OC=C=CF.CC(F)=C=C(O)Cl
   Molfile: disconnected_stereo-0083-00
   -INDIGO-01000000002D
 
@@ -1303,7 +1303,7 @@ M  END
 
   Fold: C(O)=[C@@]=CF.C(Cl)(O)=[C@]=C(F)C
   Unfold: C([H])(O[H])=[C@@]=C([H])F.C(Cl)(O[H])=[C@]=C(F)C([H])([H])[H]
-  Cano Unfold: CC(F)=C=C(O)Cl.OC=C=CF
+  Cano Unfold: OC=C=CF.CC(F)=C=C(O)Cl
   Removing atoms:
     C=C(F)[H].O.[HH].C(Cl)(O)=[C@]=C(F)C
     C(F)[H].O.[HH].C(Cl)(O)=[C@]=C(F)C

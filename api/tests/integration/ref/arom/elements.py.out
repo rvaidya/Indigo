@@ -27,8 +27,8 @@ COc1ccccc1Oc1c(CCO)[n]c([n]c1NS(=O)(=O)Nc1ccccc1)-c1:[B]:ccc[n]1
 B1=NN=CC2=CC=CC=C21
 [B]1:[n][n]cc2ccccc2:1
 9
-CCN(CC)CC.B1C=CC=CC=1
-CCN(CC)CC.[B]1:ccccc:1
+B1C=CC=CC=1.CCN(CC)CC
+[B]1:ccccc:1.CCN(CC)CC
 10
 B1C=CC=CC=1
 [B]1:ccccc:1
@@ -697,8 +697,8 @@ CC(C)(C)c1cc(cc2c1o[as](O[as]1oc3c(cc(cc3c3cc(cc(c3o1)C(C)(C)C)C(C)(C)C)C(C)(C)C
 C1=CC=[As]C2=CC=CC=C21
 c1cccc2[as]cccc21
 20
-[Sm].[Sm].CC1=C[AsH]C=C1C.CC1=C[As]C=C1C.CC1[C-](C)C(C)=C(C)C=1C.CC1[C-](C)C(C)=C(C)C=1C.CC1[C-](C)C(C)=C(C)C=1C.C[C-]1[C-](C)[C-](C)[C-](C)[C-]1C
-[Sm].[Sm].CC1=C[As]C=C1C.Cc1c[asH]cc1C.Cc1[c-](C)c(C)c(C)c1C.Cc1[c-](C)c(C)c(C)c1C.Cc1[c-](C)c(C)c(C)c1C.C[c-]1[c-](C)[c-](C)[c-](C)[c-]1C
+[Sm].[Sm].CC1=C[AsH]C=C1C.CC1=C[As]C=C1C.C[C-]1[C-](C)[C-](C)[C-](C)[C-]1C.C[C-]1C(C)=C(C)C(C)=C1C.C[C-]1C(C)=C(C)C(C)=C1C.C[C-]1C(C)=C(C)C(C)=C1C
+[Sm].[Sm].Cc1c[asH]cc1C.CC1=C[As]C=C1C.C[c-]1[c-](C)[c-](C)[c-](C)[c-]1C.C[c-]1c(C)c(C)c(C)c1C.C[c-]1c(C)c(C)c(C)c1C.C[c-]1c(C)c(C)c(C)c1C
 21
 CC1=C(C)C(C)=C(C)[As]1C1C=CC=CC=1
 Cc1c(C)c(C)c(C)[as]1-c1ccccc1
@@ -715,8 +715,8 @@ c1cc[as][nH]1
 C1=C[As]C2=CC=CC=C21
 c1cccc2[As]C=Cc21
 26
-[Cl-].[Cl-].[Cl-].[Zr].[Zr].[Zr].CC1=[As][As]C(C)=C1C.CC1=[As][As]C(C)=C1C.CC1=[As][As]C(C)=C1C
-[Cl-].[Cl-].[Cl-].[Zr].[Zr].[Zr].CC1=[As][As]C(C)=C1C.CC1=[As][As]C(C)=C1C.CC1=[As][As]C(C)=C1C
+[Cl-].[Cl-].[Cl-].[Zr].[Zr].[Zr].CC1C(C)=[As][As]C=1C.CC1C(C)=[As][As]C=1C.CC1C(C)=[As][As]C=1C
+[Cl-].[Cl-].[Cl-].[Zr].[Zr].[Zr].CC1C(C)=[As][As]C=1C.CC1C(C)=[As][As]C=1C.CC1C(C)=[As][As]C=1C
 27
 CC1C(C)=[As][As]C=1C
 CC1C(C)=[As][As]C=1C
@@ -803,8 +803,8 @@ CC(C=C1[Se]c2ccccc2N1CCCS([O-])(=O)=O)=Cc1[se]c2ccccc2[n+]1CCCS(O)(=O)=O
 CC(=CC1[Se]C2=CC=CC=C2[N+]=1CCCS(O)(=O)=O)C=C1[Se]C2=CC=CC=C2N1CCCS(O)(=O)=O
 CC(C=C1[Se]c2ccccc2N1CCCS(O)(=O)=O)=Cc1[se]c2ccccc2[n+]1CCCS(O)(=O)=O
 25
-CC1[Se]C2=CC=CC=C2[N+]=1CC.CCOS([O-])(=O)=O
-Cc1[se]c2ccccc2[n+]1CC.CCOS([O-])(=O)=O
+CCOS([O-])(=O)=O.CC1[Se]C2=CC=CC=C2[N+]=1CC
+CCOS([O-])(=O)=O.Cc1[se]c2ccccc2[n+]1CC
 26
 [I-].COC1=CC2=C(C=C1)[Se]C(C=C(CC)C=C1[Se]C3C=CC(=CC=3N1CC)OC)=[N+]2CC
 [I-].COc1cc2c(cc1)[Se]C(=CC(CC)=Cc1[se]c3ccc(cc3[n+]1CC)OC)N2CC

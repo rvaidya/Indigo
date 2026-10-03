@@ -1,4 +1,10 @@
+component multiplicity: PASS
 canonical disconnected components: PASS
 roundtrip: PASS
 component permutation: PASS
+atom permutation: PASS
 stereo preserved: PASS
+duplicate multiplicity matrix: PASS
+component semantics: PASS
+aromatic/Kekule state: PASS
+reaction mappings: PASS

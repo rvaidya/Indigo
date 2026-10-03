@@ -27,9 +27,11 @@ namespace indigo
     class Molecule;
     class MoleculeStereocenters;
     class CancellationHandler;
+    class CanonicalSmilesSaver;
 
     class MoleculeAutomorphismSearch : public AutomorphismSearch
     {
+        friend class CanonicalSmilesSaver;
     public:
         MoleculeAutomorphismSearch();
         ~MoleculeAutomorphismSearch() override
@@ -80,7 +82,10 @@ namespace indigo
         bool _checkStereocentersAutomorphism(Molecule& mol, const Array<int>& mapping) const;
 
         void _initialize(Molecule& mol);
+        bool getCanonicalDisconnectedComponentNumbering(Molecule& mol, Array<int>& ignored, Array<int>& numbering);
         void _calculateHydrogensAndDegree(Molecule& mol);
+        bool _getCanonicalComponentOrder(Molecule& mol, Array<int>& numbering);
+        int _compareCanonicalComponentOrders(Molecule& mol, const Array<int>& order1, const Array<int>& order2) const;
         void _getFirstApproximation(Molecule& mol);
 
         int _validCisTransBond(int idx, const Array<int>& orbits);

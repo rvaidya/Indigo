@@ -11,9 +11,9 @@ C[Se+]1C=CC=C1
    C[se+]1cccc1
      C[se+]1cccc1
 [B-](F)(F)(F)F.CCC1=CC(=[Se+]C2=CC=CC=C21)C(C)(C)C
-  CCc1cc([se+]c2ccccc21)C(C)(C)C.F[B-](F)(F)F
-   CCc1cc([se+]c2ccccc21)C(C)(C)C.F[B-](F)(F)F
-     CCc1cc([se+]c2ccccc21)C(C)(C)C.F[B-](F)(F)F
+  F[B-](F)(F)F.CCc1cc([se+]c2ccccc21)C(C)(C)C
+   F[B-](F)(F)F.CCc1cc([se+]c2ccccc21)C(C)(C)C
+     F[B-](F)(F)F.CCc1cc([se+]c2ccccc21)C(C)(C)C
 C1=CC2=C3C(=C1)[Se]C4=CC=CC5=C4C(=CC=C5)[Se](=O)C3=CC=C2
   O=[Se]1c2cccc3cccc([Se]c4cccc5cccc1c54)c32
    O=[Se]1c2cccc3cccc([Se]c4cccc5cccc1c54)c32

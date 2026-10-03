@@ -123,6 +123,7 @@ namespace indigo
 
         TL_CP_DECL(ReusableObjArray<Array<int>>, _fix);
         TL_CP_DECL(ReusableObjArray<Array<int>>, _mcr);
+        TL_CP_DECL(ReusableObjArray<Array<int>>, _seeded_component_automorphisms);
 
         TL_CP_DECL(Array<int>, _active);
         TL_CP_DECL(Array<int>, _workperm);
@@ -147,7 +148,10 @@ namespace indigo
 
         void _prepareGraph(Graph& graph);
         void _seedDisconnectedComponentAutomorphisms();
-        bool _trySeedComponentSwap(const GraphDecomposer& decomposer, int component1, int component2);
+        void _activateSeededComponentAutomorphisms();
+        void _storeComponentAutomorphism(const Array<int>& permutation, bool save_for_orbits);
+        bool _isPermutation(const Array<int>& permutation);
+        bool _trySeedComponentSwap(const GraphDecomposer& decomposer, int component1, int component2, Array<int>& permutation);
 
         static bool _componentVertexMatch(Graph& subgraph, Graph& supergraph, const int* core_sub, int sub_idx, int super_idx, void* userdata);
         static bool _componentEdgeMatch(Graph& subgraph, Graph& supergraph, int sub_idx, int super_idx, void* userdata);

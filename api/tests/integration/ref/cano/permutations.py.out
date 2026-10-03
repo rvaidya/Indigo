@@ -3014,7 +3014,7 @@ CC1=CC(=O)OC2C=C(C=CC=21)O[C@H]1O[C@H](CO)[C@@H](O)[C@H](O)[C@H]1O
  (#63)
 CC(O)COC[C@@H]1O[C@H]2O[C@H]3[C@H](COCC(C)O)O[C@@H](O[C@H]4[C@H](COCC(C)O)O[C@@H](O[C@H]5[C@H](COCC(C)O)O[C@@H](O[C@H]6[C@H](COCC(C)O)O[C@@H](O[C@H]7[C@H](COCC(C)O)O[C@@H](O[C@H]8[C@H](COCC(C)O)O[C@@H](O[C@@H]1[C@@H](O)[C@@H]2O)[C@@H](O)[C@@H]8O)[C@@H](O)[C@@H]7O)[C@@H](O)[C@@H]6O)[C@@H](O)[C@@H]5O)[C@@H](O)[C@@H]4O)[C@@H](O)[C@@H]3O
  (#64)
-NC1CCCCC1.NC1CCCCC1.NC1CCCCC1.NC1CCCCC1.OP(O)(=O)OC[C@H]1O[C@H](OP(O)(O)=O)[C@H](O)[C@@H](O)[C@@H]1O
+NC1CCCCC1.NC1CCCCC1.NC1CCCCC1.NC1CCCCC1.O[C@H]1[C@@H](OP(O)(O)=O)O[C@H](COP(O)(O)=O)[C@@H](O)[C@@H]1O
  (#65)
 O[14C@H]1[14C@H](O[14C@H]([14CH2]O)[14C@@H](O)[14C@@H]1O)O[14C@]1([14CH2]O)O[14C@H]([14CH2]O)[14C@@H](O)[14C@@H]1O
  (#66)
@@ -3072,7 +3072,7 @@ O[C@H](CO)[C@@H](O[C@H]1O[C@H](CO)[C@@H](O[C@H]2O[C@H](CO)[C@@H](O[C@H]3O[C@H](C
  (#92)
 O[C@H](CO)[C@@H](O[C@H]1O[C@H](CO)[C@@H](O[C@H]2O[C@H](CO)[C@@H](O)[C@H](O)[C@H]2O)[C@H](O)[C@H]1O)[C@H](O)[C@@H](O)CO
  (#93)
-C[C@H]1[C@@H]2O[C@H]3O[C@H](CO)[C@@H](O[C@H]4O[C@H](CO)[C@@H](O[C@H]5O[C@H](CO)[C@@H](O[C@H]6O[C@H](CO)[C@@H](O[C@H]7O[C@H](CO)[C@@H](O[C@H]8O[C@H](CO)[C@@H](O[C@@H](O[C@@H]2CO)[C@@H]1O)[C@H](O)[C@H]8O)[C@H](O)[C@H]7O)[C@H](O)[C@H]6O)[C@H](O)[C@H]5O)[C@H](O)[C@H]4OCCCO)[C@H](O)[C@H]3O.C[C@]12CC[C@H]3[C@@H](CCC4C=C(O)C=CC=43)[C@@H]1CC[C@@H]2O
+C[C@]12CC[C@H]3[C@@H](CCC4C=C(O)C=CC=43)[C@@H]1CC[C@@H]2O.C[C@H]1[C@@H]2O[C@H]3O[C@H](CO)[C@@H](O[C@H]4O[C@H](CO)[C@@H](O[C@H]5O[C@H](CO)[C@@H](O[C@H]6O[C@H](CO)[C@@H](O[C@H]7O[C@H](CO)[C@@H](O[C@H]8O[C@H](CO)[C@@H](O[C@@H](O[C@@H]2CO)[C@@H]1O)[C@H](O)[C@H]8O)[C@H](O)[C@H]7O)[C@H](O)[C@H]6O)[C@H](O)[C@H]5O)[C@H](O)[C@H]4OCCCO)[C@H](O)[C@H]3O
  (#94)
 CCOC(=O)CCSCCO[C@@H]1O[C@H](CO)[C@@H](O[C@H]2O[C@H](CO)[C@@H](O[C@H]3O[C@H](CO[C@H]4O[C@H](CO)[C@@H](O)[C@H](O)[C@H]4O)[C@@H](O)[C@H](O)[C@H]3O)[C@H](O)[C@H]2O)[C@H](O)[C@H]1O
  (#95)
@@ -3156,7 +3156,7 @@ CCCCCCCCCCCCCCCCCC(=O)OC[C@@]1(O[C@H]2O[C@H](CO)[C@@H](O)[C@H](O)[C@H]2O)O[C@H](
  (#134)
 OC[C@H]1O[C@H](OC2=CNC3C=CC(Br)=C(Cl)C=32)[C@H](O)[C@@H](O)[C@@H]1O
  (#135)
-O.NC1CCCCC1.NC1CCCCC1.NC1CCCCC1.NC1CCCCC1.OP(O)(=O)OC[C@H]1O[C@H](OP(O)(O)=O)[C@H](O)[C@@H](O)[C@@H]1O
+O.NC1CCCCC1.NC1CCCCC1.NC1CCCCC1.NC1CCCCC1.O[C@H]1[C@@H](OP(O)(O)=O)O[C@H](COP(O)(O)=O)[C@@H](O)[C@@H]1O
  (#136)
 N.CC1(C)[C@@H]2CC[C@]3(C)[C@H](C(=O)C=C4[C@@H]5C[C@](C)(CC[C@]5(C)CC[C@@]34C)C(O)=O)[C@@]2(C)CC[C@@H]1O[C@H]1O[C@@H]([C@@H](O)[C@H](O)[C@H]1O[C@@H]1O[C@@H]([C@@H](O)[C@H](O)[C@H]1O)C(O)=O)C(O)=O
  (#137)
@@ -3192,7 +3192,7 @@ O[C@@H]1[C@@H](CO)O[C@H](O[C@@H]2CO[C@](O)(CO)[C@@H](O)[C@@H]2O)[C@H](O)[C@H]1O
  (#152)
 O[C@H]1[C@H](O[C@H]2O[C@H](CO)[C@@H](O)[C@H](O)[C@H]2O)[C@@H](CO)O[C@H](O[C@]2(CO)O[C@H](CO)[C@@H](O)[C@@H]2O)[C@@H]1O
  (#153)
-O[C@H](CO[C@H]1O[C@H](CO)[C@@H](O)[C@H](O)[C@H]1O)[C@@H](O)[C@H](O)[C@@H](O)CO.O[C@H](CO[C@H]1O[C@H](CO)[C@@H](O)[C@H](O)[C@H]1O)[C@@H](O)[C@H](O)[C@H](O)CO
+OC[C@H]1O[C@H](OC[C@@H](O)[C@@H](O)[C@H](O)[C@@H](O)CO)[C@H](O)[C@@H](O)[C@@H]1O.OC[C@H]1O[C@H](OC[C@@H](O)[C@@H](O)[C@H](O)[C@H](O)CO)[C@H](O)[C@@H](O)[C@@H]1O
  (#154)
 CC(=O)OC[C@H]1O[C@H](OC(C)=O)[C@H](O)[C@@H](OC(C)=O)[C@@H]1OC(C)=O
  (#155)
@@ -3378,7 +3378,7 @@ CC(=O)O[C@@H]1[C@@H](OC(=O)C(C)C)[C@H](OC(=O)C(C)C)[C@@H](COC(=O)C(C)C)O[C@@H]1O
  (#245)
 CCN(CC)CC.O[C@@H]1[C@@H](OP(O)(O)=O)[C@H](OP(O)(O)=O)[C@@H](CO)O[C@@H]1O[C@@H]1COC[C@H]1OP(O)(O)=O
  (#246)
-CO[C@@H]1O[C@H](CO)[C@@H](O[C@H]2O[C@H](CO)[C@@H](OP(O)(O)=O)[C@H](OP(O)(O)=O)[C@H]2O)[C@H]1OP(O)(O)=O.CCN(CC)CC
+CCN(CC)CC.CO[C@@H]1O[C@H](CO)[C@@H](O[C@H]2O[C@H](CO)[C@@H](OP(O)(O)=O)[C@H](OP(O)(O)=O)[C@H]2O)[C@H]1OP(O)(O)=O
  (#247)
 O[C@H](CO)[C@@H](O[C@H]1O[C@H](CO)[C@@H](O[C@H]2O[C@H](CO[C@H]3O[C@H](CO)[C@@H](O)[C@H](O)[C@H]3O)[C@@H](O)[C@H](O)[C@H]2O)[C@H](O)[C@H]1O)[C@H](O)[C@@H](O)C=O
  (#248)

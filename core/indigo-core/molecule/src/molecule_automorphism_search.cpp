@@ -25,6 +25,9 @@
 #include "molecule/elements.h"
 #include "molecule/molecule.h"
 #include "molecule/molecule_scaffold_detection.h"
+#include <algorithm>
+#include <vector>
+#include <numeric>
 
 using namespace indigo;
 
@@ -836,6 +839,157 @@ int MoleculeAutomorphismSearch::_compareStereo(Molecule& mol, int v1, int v2, co
         return diff;
 
     return 0;
+}
+
+bool MoleculeAutomorphismSearch::getCanonicalDisconnectedComponentNumbering(Molecule& mol, Array<int>& ignored, Array<int>& numbering)
+{
+    numbering.clear();
+    if (!find_canonical_ordering)
+        return false;
+
+    for (int i = mol.edgeBegin(); i != mol.edgeEnd(); i = mol.edgeNext(i))
+        if (mol.cis_trans.getParity(i) != 0)
+            return false;
+
+    ignored_vertices = ignored.ptr();
+    _calculateHydrogensAndDegree(mol);
+
+    _stereocenter_state.clear_resize(mol.vertexEnd());
+    for (int i = 0; i < _stereocenter_state.size(); i++)
+        _stereocenter_state[i] = _NO_STEREO;
+    for (int i = mol.stereocenters.begin(); i != mol.stereocenters.end(); i = mol.stereocenters.next(i))
+        _stereocenter_state[mol.stereocenters.getAtomIndex(i)] = _VALID;
+
+    _cistrans_bond_state.clear_resize(mol.edgeEnd());
+    for (int i = 0; i < _cistrans_bond_state.size(); i++)
+        _cistrans_bond_state[i] = _NO_STEREO;
+    _cistrans_stereo_bond_parity.clear_resize(mol.edgeEnd());
+    _cistrans_stereo_bond_parity.zerofill();
+    _treat_undef_as = _INVALID;
+    _target_stereocenter = -1;
+    _target_bond = -1;
+    _fixed_atom = -1;
+
+    return _getCanonicalComponentOrder(mol, numbering);
+}
+
+bool MoleculeAutomorphismSearch::_getCanonicalComponentOrder(Molecule& mol, Array<int>& numbering)
+{
+    numbering.clear();
+    // Reaction mappings and enhanced stereo groups can couple otherwise disconnected components.
+    for (int i = mol.vertexBegin(); i != mol.vertexEnd(); i = mol.vertexNext(i))
+        if (i < mol.reaction_atom_mapping.size() && mol.reaction_atom_mapping[i] != 0)
+            return false;
+
+    const MoleculeStereocenters& stereocenters = mol.stereocenters;
+    for (int i = stereocenters.begin(); i != stereocenters.end(); i = stereocenters.next(i))
+    {
+        int atom = stereocenters.getAtomIndex(i);
+        int type = stereocenters.getType(atom);
+        if (type == MoleculeStereocenters::ATOM_AND || type == MoleculeStereocenters::ATOM_OR)
+            return false;
+    }
+
+    GraphDecomposer decomposer(mol);
+    int component_count = decomposer.decompose();
+    if (component_count < 2)
+        return false;
+
+    struct CanonicalComponent
+    {
+        Array<int> vertices;
+        Array<int> order;
+    };
+
+    std::vector<CanonicalComponent> components(component_count);
+    for (int i = mol.vertexBegin(); i != mol.vertexEnd(); i = mol.vertexNext(i))
+    {
+        int component = decomposer.getComponent(i);
+        if (component >= 0)
+            components[component].vertices.push(i);
+    }
+
+    for (CanonicalComponent& canonical_component : components)
+    {
+        Molecule component;
+        Array<int> source_to_component;
+        component.makeSubmolecule(mol, canonical_component.vertices, &source_to_component);
+
+        Array<int> component_to_source;
+        component_to_source.clear_resize(component.vertexEnd());
+        component_to_source.fffill();
+
+        Array<int> ignored;
+        ignored.clear_resize(component.vertexEnd());
+        ignored.zerofill();
+        for (int source : canonical_component.vertices)
+        {
+            int local = source_to_component[source];
+            component_to_source[local] = source;
+            if (ignored_vertices != nullptr && ignored_vertices[source])
+                ignored[local] = 1;
+        }
+
+        MoleculeAutomorphismSearch component_search;
+        component_search.find_canonical_ordering = true;
+        component_search.detect_invalid_stereocenters = detect_invalid_stereocenters;
+        component_search.detect_invalid_cistrans_bonds = detect_invalid_cistrans_bonds;
+        component_search.allow_undefined = allow_undefined;
+        component_search.ignored_vertices = ignored.ptr();
+        component_search.process(component);
+
+        for (int source : canonical_component.vertices)
+        {
+            int local = source_to_component[source];
+            _stereocenter_state[source] = component_search._stereocenter_state[local];
+        }
+
+        Array<int> local_order;
+        component_search.getCanonicalNumbering(local_order);
+        for (int i = 0; i < local_order.size(); i++)
+            canonical_component.order.push(component_to_source[local_order[i]]);
+    }
+
+    // Compare canonical atom mappings with the same graph semantics used by the full search.
+    std::vector<int> component_order(component_count);
+    std::iota(component_order.begin(), component_order.end(), 0);
+    std::stable_sort(component_order.begin(), component_order.end(), [this, &mol, &components](int first, int second) {
+        return _compareCanonicalComponentOrders(mol, components[first].order, components[second].order) < 0;
+    });
+
+    for (int component : component_order)
+        for (int atom : components[component].order)
+            numbering.push(atom);
+    return true;
+}
+
+int MoleculeAutomorphismSearch::_compareCanonicalComponentOrders(Molecule& mol, const Array<int>& order1, const Array<int>& order2) const
+{
+    if (order1.size() != order2.size())
+        return order1.size() < order2.size() ? -1 : 1;
+
+    for (int i = 0; i < order1.size(); i++)
+    {
+        int atom1 = order1[i];
+        int atom2 = order2[i];
+        int comparison = Molecule::matchAtomsCmp(mol, mol, atom1, atom2, nullptr);
+        if (comparison != 0)
+            return comparison;
+
+        if (_hcount[atom1] != _hcount[atom2])
+            return _hcount[atom1] < _hcount[atom2] ? 1 : -1;
+
+        comparison = _compareStereo(mol, atom1, atom2, this);
+        if (comparison != 0)
+            return comparison;
+
+        int highlighted1 = mol.isAtomHighlighted(atom1);
+        int highlighted2 = mol.isAtomHighlighted(atom2);
+        if (highlighted1 != highlighted2)
+            return highlighted1 - highlighted2;
+    }
+
+    return _compare_mapped(mol, order1, order2, this);
 }
 
 void MoleculeAutomorphismSearch::_calculateHydrogensAndDegree(Molecule& mol)

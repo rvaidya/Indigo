@@ -5,6 +5,8 @@ Released 2026-07-10
 * #3333 - Use BIOVIA post 2014 valence table to calculate atomic valences from molfiles
 
 ## Bugfixes and improvements
+* Index stored automorphism generators by moved vertices to reduce long-prune overhead.
+* Cache canonical-side neighborhoods and mapped bond encodings across repeated canonical comparisons.
 * #3599 - Bond length become wrong after Arrange as a Ring option applied
 * #3648 - Integration tests may fails in MT mode
 * #3283 - SVG export fails, with S-Groups

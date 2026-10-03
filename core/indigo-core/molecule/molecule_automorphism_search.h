@@ -107,10 +107,12 @@ namespace indigo
         {
             int mapped_vertex;
             int edge;
+            int mapped_type;
         };
 
         static void _getSortedNei(Graph& g, int v, Array<EdgeInfo>& sorted_nei, Array<int>& inv_mapping);
         int _getMappedBondOrderAndParity(Molecule& m, int e, Array<int>& inv_mapping) const;
+        void _invalidateMappedComparisonCache();
 
         TL_CP_DECL(Array<int>, _approximation_orbits);
         TL_CP_DECL(Array<int>, _approximation_orbits_saved);
@@ -128,6 +130,11 @@ namespace indigo
         };
         TL_CP_DECL(Array<int>, _stereocenter_state);
         TL_CP_DECL(Array<int>, _cistrans_bond_state);
+        TL_CP_DECL(Array<int>, _mapped_compare_mapping2);
+        TL_CP_DECL(Array<int>, _mapped_compare_inverse2);
+        TL_CP_DECL(Array<int>, _mapped_compare_neighbor_offsets);
+        TL_CP_DECL(Array<EdgeInfo>, _mapped_compare_neighbors2);
+        bool _mapped_compare_cache_valid;
 
         // Target stereocenters and cis-trans bond for checking permutation parity
         int _target_stereocenter, _target_bond;

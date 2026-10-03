@@ -26,6 +26,8 @@
 
 namespace indigo
 {
+    class GraphDecomposer;
+
 
     class AutomorphismSearch
     {
@@ -121,6 +123,9 @@ namespace indigo
 
         TL_CP_DECL(ReusableObjArray<Array<int>>, _fix);
         TL_CP_DECL(ReusableObjArray<Array<int>>, _mcr);
+        TL_CP_DECL(ReusableObjArray<Array<int>>, _seeded_component_automorphisms);
+        TL_CP_DECL(ReusableObjArray<Array<int>>, _moved_vertices);
+        TL_CP_DECL(ReusableObjArray<Array<int>>, _generators_by_vertex);
 
         TL_CP_DECL(Array<int>, _active);
         TL_CP_DECL(Array<int>, _workperm);
@@ -134,6 +139,9 @@ namespace indigo
         TL_CP_DECL(Array<int[2]>, _work_active_cells);
         TL_CP_DECL(Array<int>, _edge_ranks_in_refine);
 
+        TL_CP_DECL(Array<int>, _fixed_generator_count);
+        TL_CP_DECL(Array<int>, _generator_seen_epoch);
+        TL_CP_DECL(Array<int>, _long_prune_candidates);
         int _n;
         Graph* _given_graph;
 
@@ -141,9 +149,21 @@ namespace indigo
         int _canonlevel, _gca_canon;
         int _cosetindex;
         bool _needshortprune;
+        bool _seeded_component_automorphisms_active;
         int _orbits_num;
+        int _long_prune_epoch;
 
         void _prepareGraph(Graph& graph);
+        void _seedDisconnectedComponentAutomorphisms();
+        void _activateSeededComponentAutomorphisms();
+        bool _isPermutation(const Array<int>& permutation);
+        void _storeAutomorphism(const Array<int>& permutation, bool save_for_orbits);
+        void _registerGenerator(int generator_index);
+        void _removeGenerator(int generator_index);
+        void _setFixedPoint(int vertex, int value);
+        bool _trySeedComponentSwap(const GraphDecomposer& decomposer, int component1, int component2, Array<int>& permutation);
+        static bool _componentVertexMatch(Graph& subgraph, Graph& supergraph, const int* core_sub, int sub_idx, int super_idx, void* userdata);
+        static bool _componentEdgeMatch(Graph& subgraph, Graph& supergraph, int sub_idx, int super_idx, void* userdata);
 
         int _firstNode(int level, int numcells);
         int _otherNode(int level, int numcells);
@@ -154,12 +174,12 @@ namespace indigo
         int _targetcell(int level, Array<int>& cell);
         void _breakout(int level, int tc, int tv);
         int _shortPrune(Array<int>& tcell, Array<int>& mcr, int idx);
-        int _longPrune(Array<int>& tcell, Array<int>& fix, int idx);
+        int _longPrune(Array<int>& tcell, int idx);
         void _recover(int level);
         int _processNode(int level, int numcells);
         bool _isAutomorphism(Array<int>& perm);
         int _compareCanon();
-        void _buildFixMcr(const Array<int>& perm, Array<int>& fix, Array<int>& mcr);
+        void _buildFixMcr(const Array<int>& perm, Array<int>& fix, Array<int>& mcr, Array<int>& moved_vertices);
         void _joinOrbits(const Array<int>& perm);
         void _handleAutomorphism(const Array<int>& perm);
         bool _hasEdgeWithRank(int from, int to, int target_edge_rank);

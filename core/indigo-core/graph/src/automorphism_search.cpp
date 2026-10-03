@@ -17,8 +17,22 @@
  ***************************************************************************/
 
 #include "graph/automorphism_search.h"
+#include "graph/embedding_enumerator.h"
+#include "graph/graph_decomposer.h"
+#include <limits>
 
 using namespace indigo;
+
+
+namespace
+{
+    struct ComponentMatchContext
+    {
+        indigo::AutomorphismSearch* search;
+        const indigo::Array<int>* sub_to_graph;
+        const indigo::Array<int>* super_to_graph;
+    };
+}
 
 IMPL_ERROR(AutomorphismSearch, "automorphism search");
 IMPL_TIMEOUT_EXCEPTION(AutomorphismSearch, "automorphism search");
@@ -27,9 +41,10 @@ CP_DEF(AutomorphismSearch);
 
 AutomorphismSearch::AutomorphismSearch()
     : CP_INIT, TL_CP_GET(_call_stack), TL_CP_GET(_lab), TL_CP_GET(_ptn), TL_CP_GET(_graph), TL_CP_GET(_mapping), TL_CP_GET(_inv_mapping), TL_CP_GET(_degree),
-      TL_CP_GET(_tcells), TL_CP_GET(_fix), TL_CP_GET(_mcr), TL_CP_GET(_active), TL_CP_GET(_workperm), TL_CP_GET(_workperm2), TL_CP_GET(_bucket),
+      TL_CP_GET(_tcells), TL_CP_GET(_fix), TL_CP_GET(_mcr), TL_CP_GET(_seeded_component_automorphisms), TL_CP_GET(_moved_vertices),
+      TL_CP_GET(_generators_by_vertex), TL_CP_GET(_active), TL_CP_GET(_workperm), TL_CP_GET(_workperm2), TL_CP_GET(_bucket),
       TL_CP_GET(_count), TL_CP_GET(_firstlab), TL_CP_GET(_canonlab), TL_CP_GET(_orbits), TL_CP_GET(_fixedpts), TL_CP_GET(_work_active_cells),
-      TL_CP_GET(_edge_ranks_in_refine)
+      TL_CP_GET(_edge_ranks_in_refine), TL_CP_GET(_fixed_generator_count), TL_CP_GET(_generator_seen_epoch), TL_CP_GET(_long_prune_candidates)
 {
     getcanon = true;
     compare_vertex_degree_first = true;
@@ -46,6 +61,7 @@ AutomorphismSearch::AutomorphismSearch()
     cb_edge_rank = 0;
     context_automorphism = 0;
     _given_graph = 0;
+    _long_prune_epoch = 0;
     ignored_vertices = 0;
 
     _cancellation_handler = getCancellationHandler();
@@ -198,6 +214,290 @@ int AutomorphismSearch::_cmp_vertices(int idx1, int idx2, void* context)
     return 0;
 }
 
+bool AutomorphismSearch::_componentVertexMatch(Graph& subgraph, Graph& supergraph, const int* /*core_sub*/, int sub_idx, int super_idx,
+                                                void* userdata)
+{
+    ComponentMatchContext& match = *(ComponentMatchContext*)userdata;
+    AutomorphismSearch& self = *match.search;
+    if (subgraph.getVertex(sub_idx).degree() != supergraph.getVertex(super_idx).degree())
+        return false;
+
+    int graph_sub = match.sub_to_graph->at(sub_idx);
+    int graph_super = match.super_to_graph->at(super_idx);
+    if (graph_sub < 0 || graph_super < 0 || !self._graph.hasVertex(graph_sub) || !self._graph.hasVertex(graph_super))
+        throw Error("internal: incomplete disconnected component vertex mapping");
+
+    int original_sub = self._mapping[graph_sub];
+    int original_super = self._mapping[graph_super];
+    if (self.cb_vertex_cmp != 0 && self.cb_vertex_cmp(*self._given_graph, original_sub, original_super, self.context) != 0)
+        return false;
+    if (self.cb_vertex_rank != 0 &&
+        self.cb_vertex_rank(*self._given_graph, original_sub, self.context) != self.cb_vertex_rank(*self._given_graph, original_super, self.context))
+        return false;
+    return true;
+}
+
+bool AutomorphismSearch::_componentEdgeMatch(Graph& subgraph, Graph& supergraph, int sub_idx, int super_idx, void* userdata)
+{
+    ComponentMatchContext& match = *(ComponentMatchContext*)userdata;
+    AutomorphismSearch& self = *match.search;
+    if (self.cb_edge_rank == 0)
+        return true;
+
+    const Edge& sub_edge = subgraph.getEdge(sub_idx);
+    const Edge& super_edge = supergraph.getEdge(super_idx);
+    int graph_sub_beg = match.sub_to_graph->at(sub_edge.beg);
+    int graph_sub_end = match.sub_to_graph->at(sub_edge.end);
+    int graph_super_beg = match.super_to_graph->at(super_edge.beg);
+    int graph_super_end = match.super_to_graph->at(super_edge.end);
+    if (graph_sub_beg < 0 || graph_sub_end < 0 || graph_super_beg < 0 || graph_super_end < 0)
+        throw Error("internal: incomplete disconnected component edge mapping");
+
+    int original_sub = self._given_graph->findEdgeIndex(self._mapping[graph_sub_beg], self._mapping[graph_sub_end]);
+    int original_super = self._given_graph->findEdgeIndex(self._mapping[graph_super_beg], self._mapping[graph_super_end]);
+    if (original_sub < 0 || original_super < 0)
+        return false;
+    return self.cb_edge_rank(*self._given_graph, original_sub, self.context) == self.cb_edge_rank(*self._given_graph, original_super, self.context);
+}
+
+bool AutomorphismSearch::_trySeedComponentSwap(const GraphDecomposer& decomposer, int component1, int component2, Array<int>& permutation)
+{
+    if (decomposer.getComponentVerticesCount(component1) != decomposer.getComponentVerticesCount(component2) ||
+        decomposer.getComponentEdgesCount(component1) != decomposer.getComponentEdgesCount(component2))
+        return false;
+
+    QS_DEF(Array<int>, component1_vertices);
+    QS_DEF(Array<int>, component2_vertices);
+    component1_vertices.clear();
+    component2_vertices.clear();
+    for (int vertex = _graph.vertexBegin(); vertex != _graph.vertexEnd(); vertex = _graph.vertexNext(vertex))
+    {
+        int component = decomposer.getComponent(vertex);
+        if (component == component1)
+            component1_vertices.push(vertex);
+        if (component == component2)
+            component2_vertices.push(vertex);
+    }
+
+    Graph component1_graph;
+    Graph component2_graph;
+    QS_DEF(Array<int>, graph_to_component1);
+    QS_DEF(Array<int>, graph_to_component2);
+    component1_graph.makeSubgraph(_graph, component1_vertices, &graph_to_component1);
+    component2_graph.makeSubgraph(_graph, component2_vertices, &graph_to_component2);
+
+    QS_DEF(Array<int>, component1_to_graph);
+    QS_DEF(Array<int>, component2_to_graph);
+    component1_to_graph.clear_resize(component1_graph.vertexEnd());
+    component2_to_graph.clear_resize(component2_graph.vertexEnd());
+    component1_to_graph.fffill();
+    component2_to_graph.fffill();
+    for (int i = 0; i < component1_vertices.size(); i++)
+    {
+        int graph_vertex = component1_vertices[i];
+        int component_vertex = graph_to_component1[graph_vertex];
+        if (component_vertex < 0 || !component1_graph.hasVertex(component_vertex) || component1_to_graph[component_vertex] != -1)
+            throw Error("internal: invalid disconnected component subgraph mapping");
+        component1_to_graph[component_vertex] = graph_vertex;
+    }
+    for (int i = 0; i < component2_vertices.size(); i++)
+    {
+        int graph_vertex = component2_vertices[i];
+        int component_vertex = graph_to_component2[graph_vertex];
+        if (component_vertex < 0 || !component2_graph.hasVertex(component_vertex) || component2_to_graph[component_vertex] != -1)
+            throw Error("internal: invalid disconnected component supergraph mapping");
+        component2_to_graph[component_vertex] = graph_vertex;
+    }
+    for (int vertex = component1_graph.vertexBegin(); vertex != component1_graph.vertexEnd(); vertex = component1_graph.vertexNext(vertex))
+        if (component1_to_graph[vertex] < 0)
+            throw Error("internal: incomplete disconnected component subgraph mapping");
+    for (int vertex = component2_graph.vertexBegin(); vertex != component2_graph.vertexEnd(); vertex = component2_graph.vertexNext(vertex))
+        if (component2_to_graph[vertex] < 0)
+            throw Error("internal: incomplete disconnected component supergraph mapping");
+
+    ComponentMatchContext match = {this, &component1_to_graph, &component2_to_graph};
+    EmbeddingEnumerator enumerator(component2_graph);
+    enumerator.setSubgraph(component1_graph);
+    enumerator.userdata = &match;
+    enumerator.cb_match_vertex = _componentVertexMatch;
+    enumerator.cb_match_edge = _componentEdgeMatch;
+
+    QS_DEF(Array<int>, candidate_permutation);
+    candidate_permutation.clear_resize(_n);
+    enumerator.processStart();
+    while (enumerator.processNext())
+    {
+        for (int i = 0; i < _n; i++)
+            candidate_permutation[i] = i;
+        const int* mapping = enumerator.getSubgraphMapping();
+        bool valid_mapping = true;
+        for (int vertex = component1_graph.vertexBegin(); vertex != component1_graph.vertexEnd(); vertex = component1_graph.vertexNext(vertex))
+        {
+            int mapped = mapping[vertex];
+            if (mapped < 0 || !component2_graph.hasVertex(mapped))
+            {
+                valid_mapping = false;
+                break;
+            }
+            int graph_vertex1 = component1_to_graph[vertex];
+            int graph_vertex2 = component2_to_graph[mapped];
+            candidate_permutation[graph_vertex1] = graph_vertex2;
+            candidate_permutation[graph_vertex2] = graph_vertex1;
+        }
+        if (!valid_mapping)
+            continue;
+        if (!_isPermutation(candidate_permutation))
+            throw Error("internal: disconnected component swap is not a permutation");
+        if (!_isAutomorphism(candidate_permutation))
+            continue;
+        permutation.copy(candidate_permutation);
+        return true;
+    }
+    return false;
+}
+
+bool AutomorphismSearch::_isPermutation(const Array<int>& permutation)
+{
+    if (permutation.size() != _n)
+        return false;
+    _workperm2.zerofill();
+    for (int i = 0; i < _n; i++)
+    {
+        int mapped = permutation[i];
+        if (mapped < 0 || mapped >= _n || _workperm2[mapped] != 0)
+            return false;
+        _workperm2[mapped] = 1;
+    }
+    return true;
+}
+void AutomorphismSearch::_storeAutomorphism(const Array<int>& permutation, bool save_for_orbits)
+{
+    if (_fix.size() == worksize)
+    {
+        int generator_index = _fix.size() - 1;
+        _removeGenerator(generator_index);
+        _fix.pop();
+        _mcr.pop();
+        _moved_vertices.pop();
+    }
+
+    int generator_index = _fix.size();
+    _buildFixMcr(permutation, _fix.push(), _mcr.push(), _moved_vertices.push());
+    _fixed_generator_count.push(0);
+    _generator_seen_epoch.push(0);
+    _registerGenerator(generator_index);
+    if (save_for_orbits)
+        _seeded_component_automorphisms.push().copy(permutation);
+}
+
+void AutomorphismSearch::_registerGenerator(int generator_index)
+{
+    const Array<int>& moved_vertices = _moved_vertices[generator_index];
+    for (int i = 0; i < moved_vertices.size(); i++)
+    {
+        int vertex = moved_vertices[i];
+        _generators_by_vertex[vertex].push(generator_index);
+        _fixed_generator_count[generator_index] += _fixedpts[vertex];
+    }
+}
+
+void AutomorphismSearch::_removeGenerator(int generator_index)
+{
+    const Array<int>& moved_vertices = _moved_vertices[generator_index];
+    for (int i = 0; i < moved_vertices.size(); i++)
+    {
+        Array<int>& generators = _generators_by_vertex[moved_vertices[i]];
+        for (int j = 0; j < generators.size(); j++)
+            if (generators[j] == generator_index)
+            {
+                generators.remove(j);
+                break;
+            }
+    }
+    _fixed_generator_count.pop();
+    _generator_seen_epoch.pop();
+}
+
+void AutomorphismSearch::_setFixedPoint(int vertex, int value)
+{
+    if (_fixedpts[vertex] == value)
+        return;
+
+    int delta = value == 0 ? -1 : 1;
+    Array<int>& generators = _generators_by_vertex[vertex];
+    for (int i = 0; i < generators.size(); i++)
+        _fixed_generator_count[generators[i]] += delta;
+    _fixedpts[vertex] = value;
+}
+
+void AutomorphismSearch::_seedDisconnectedComponentAutomorphisms()
+{
+    GraphDecomposer decomposer(_graph);
+    int component_count = decomposer.decompose();
+    if (component_count < 2)
+        return;
+
+    QS_DEF(Array<int>, representatives);
+    QS_DEF(Array<int>, component_representatives);
+    QS_DEF(Array<int>, permutation);
+    representatives.clear();
+    component_representatives.clear_resize(component_count);
+    component_representatives.fffill();
+
+    for (int component = 0; component < component_count; component++)
+    {
+        int representative = -1;
+        for (int i = 0; i < representatives.size(); i++)
+        {
+            int candidate = representatives[i];
+            if (decomposer.getComponentVerticesCount(candidate) != decomposer.getComponentVerticesCount(component) ||
+                decomposer.getComponentEdgesCount(candidate) != decomposer.getComponentEdgesCount(component))
+                continue;
+            if (_trySeedComponentSwap(decomposer, candidate, component, permutation))
+            {
+                representative = candidate;
+                break;
+            }
+        }
+        if (representative == -1)
+        {
+            representative = component;
+            representatives.push(component);
+        }
+        component_representatives[component] = representative;
+    }
+
+    for (int component = 0; component < component_count; component++)
+    {
+        int representative = component_representatives[component];
+        if (component == representative)
+            continue;
+        int previous = -1;
+        for (int candidate = component - 1; candidate >= 0; candidate--)
+            if (component_representatives[candidate] == representative)
+            {
+                previous = candidate;
+                break;
+            }
+        if (previous < 0 || !_trySeedComponentSwap(decomposer, previous, component, permutation))
+            continue;
+
+        _storeAutomorphism(permutation, true);
+    }
+}
+
+void AutomorphismSearch::_activateSeededComponentAutomorphisms()
+{
+    if (_seeded_component_automorphisms_active)
+        return;
+    _seeded_component_automorphisms_active = true;
+    for (int i = 0; i < _seeded_component_automorphisms.size(); i++)
+    {
+        const Array<int>& permutation = _seeded_component_automorphisms[i];
+        _joinOrbits(permutation);
+        _handleAutomorphism(permutation);
+    }
+}
 void AutomorphismSearch::getCanonicalNumbering(Array<int>& numbering)
 {
     int i;
@@ -245,7 +545,6 @@ void AutomorphismSearch::getCanonicallyOrderedOrbits(Array<int>& orbits) const
 void AutomorphismSearch::process(Graph& graph)
 {
     _prepareGraph(graph);
-
     _active.clear_resize(_n);
     _workperm.clear_resize(_n);
     _workperm2.clear_resize(_n);
@@ -256,6 +555,16 @@ void AutomorphismSearch::process(Graph& graph)
     _orbits.clear_resize(_n);
     _fix.clear();
     _mcr.clear();
+    _seeded_component_automorphisms.clear();
+    _moved_vertices.clear();
+    _generators_by_vertex.clear();
+    for (int i = 0; i < _n; i++)
+        _generators_by_vertex.push().clear();
+    _fixed_generator_count.clear();
+    _generator_seen_epoch.clear();
+    _long_prune_candidates.clear();
+    _long_prune_epoch = 0;
+    _seeded_component_automorphisms_active = false;
 
     if (_n == 0)
         return;
@@ -287,6 +596,8 @@ void AutomorphismSearch::process(Graph& graph)
         for (i = 0; i < _n; ++i)
             _orbits[i] = i;
 
+        if (getcanon)
+            _seedDisconnectedComponentAutomorphisms();
         _Call& call = _call_stack.push();
         call.level = 1;
         call.numcells = numcells;
@@ -316,7 +627,7 @@ void AutomorphismSearch::process(Graph& graph)
                 if (tv == call.tv1)
                     _gca_first = call.level;
 
-                _fixedpts[tv] = 0;
+                _setFixedPoint(tv, 0);
 
                 if (retval < call.level)
                 {
@@ -354,7 +665,7 @@ void AutomorphismSearch::process(Graph& graph)
 
             _breakout(call.level + 1, call.tc, tv);
             _cosetindex = tv;
-            _fixedpts[tv] = 1;
+            _setFixedPoint(tv, 1);
 
             _Call& newcall = _call_stack.push();
             newcall.level = call.level + 1;
@@ -391,9 +702,7 @@ void AutomorphismSearch::process(Graph& graph)
             {
                 // handle the value returned from _OTHER_TO_OTHER
                 tv = _tcells[call.level][call.k];
-
-                _fixedpts[tv] = 0;
-
+                _setFixedPoint(tv, 0);
                 if (retval < call.level)
                 {
                     _call_stack.pop();
@@ -408,7 +717,7 @@ void AutomorphismSearch::process(Graph& graph)
                 }
 
                 if (tv == call.tv1)
-                    call.k = _longPrune(_tcells[call.level], _fixedpts, call.k);
+                    call.k = _longPrune(_tcells[call.level], call.k);
 
                 _recover(call.level);
                 // advance the _OTHER_LOOP counter
@@ -428,7 +737,7 @@ void AutomorphismSearch::process(Graph& graph)
             tv = _tcells[call.level][call.k];
 
             _breakout(call.level + 1, call.tc, tv);
-            _fixedpts[tv] = 1;
+            _setFixedPoint(tv, 1);
 
             _Call& newcall = _call_stack.push();
             newcall.level = call.level + 1;
@@ -454,11 +763,11 @@ int AutomorphismSearch::_firstNode(int level, int numcells)
         _gca_first = level;
 
         _firstlab.copy(_lab);
-
         if (getcanon)
         {
             _canonlevel = _gca_canon = level;
             _canonlab.copy(_lab);
+            _activateSeededComponentAutomorphisms();
         }
 
         return level - 1;
@@ -570,18 +879,46 @@ int AutomorphismSearch::_shortPrune(Array<int>& tcell, Array<int>& mcr, int idx)
     return ret;
 }
 
-int AutomorphismSearch::_longPrune(Array<int>& tcell, Array<int>& fixed, int idx)
+int AutomorphismSearch::_longPrune(Array<int>& tcell, int idx)
 {
     int i, j, k;
     int ret = idx;
 
-    for (k = 0; k < _fix.size(); k++)
+    if (_long_prune_epoch == std::numeric_limits<int>::max())
     {
-        for (j = 0; j < _n; j++)
-            if (_fix[k][j] == 0 && fixed[j] == 1)
-                break;
+        _generator_seen_epoch.zerofill();
+        _long_prune_epoch = 0;
+    }
+    int epoch = ++_long_prune_epoch;
+    _long_prune_candidates.clear();
+    for (int position = 0; position < tcell.size(); position++)
+    {
+        const Array<int>& generators = _generators_by_vertex[tcell[position]];
+        for (int generator_index = 0; generator_index < generators.size(); generator_index++)
+        {
+            int generator = generators[generator_index];
+            if (_generator_seen_epoch[generator] != epoch)
+            {
+                _generator_seen_epoch[generator] = epoch;
+                _long_prune_candidates.push(generator);
+            }
+        }
+    }
 
-        if (j != _n)
+    for (int candidate_index = 0; candidate_index < _long_prune_candidates.size(); candidate_index++)
+    {
+        k = _long_prune_candidates[candidate_index];
+        if (_fixed_generator_count[k] != 0)
+            continue;
+
+        bool affects_target_cell = false;
+        for (int position = 0; position < tcell.size(); position++)
+            if (!_mcr[k][tcell[position]])
+            {
+                affects_target_cell = true;
+                break;
+            }
+        if (!affects_target_cell)
             continue;
 
         for (i = j = 0; i < tcell.size(); i++)
@@ -618,13 +955,7 @@ int AutomorphismSearch::_processNode(int level, int numcells)
 
     if (_isAutomorphism(_workperm))
     {
-        // _lab is equivalent to firstlab
-        if (_fix.size() == worksize)
-        {
-            _fix.pop();
-            _mcr.pop();
-        }
-        _buildFixMcr(_workperm, _fix.push(), _mcr.push());
+        _storeAutomorphism(_workperm, false);
         _joinOrbits(_workperm);
         _handleAutomorphism(_workperm);
 
@@ -649,13 +980,7 @@ int AutomorphismSearch::_processNode(int level, int numcells)
             // _lab is equivalent to canonlab
             for (i = 0; i < _n; i++)
                 _workperm[_canonlab[i]] = _lab[i];
-
-            if (_fix.size() == worksize)
-            {
-                _fix.pop();
-                _mcr.pop();
-            }
-            _buildFixMcr(_workperm, _fix.push(), _mcr.push());
+            _storeAutomorphism(_workperm, false);
 
             int norb = _orbits_num;
 
@@ -762,12 +1087,13 @@ int AutomorphismSearch::_compareCanon()
     return cb_compare_mapped(*_given_graph, map, canon_map, context);
 }
 
-void AutomorphismSearch::_buildFixMcr(const Array<int>& perm, Array<int>& fix, Array<int>& mcr)
+void AutomorphismSearch::_buildFixMcr(const Array<int>& perm, Array<int>& fix, Array<int>& mcr, Array<int>& moved_vertices)
 {
     int i;
 
     fix.clear_resize(_n);
     mcr.clear_resize(_n);
+    moved_vertices.clear();
     fix.zerofill();
     mcr.zerofill();
 
@@ -780,17 +1106,21 @@ void AutomorphismSearch::_buildFixMcr(const Array<int>& perm, Array<int>& fix, A
             fix[i] = 1;
             mcr[i] = 1;
         }
-        else if (_workperm2[i] == 0)
+        else
         {
-            int l = i;
-
-            do
+            moved_vertices.push(i);
+            if (_workperm2[i] == 0)
             {
-                _workperm2[l] = 1;
-                l = perm[l];
-            } while (l != i);
+                int l = i;
 
-            mcr[i] = 1;
+                do
+                {
+                    _workperm2[l] = 1;
+                    l = perm[l];
+                } while (l != i);
+
+                mcr[i] = 1;
+            }
         }
     }
 }

@@ -33,7 +33,8 @@ IMPL_TIMEOUT_EXCEPTION(MoleculeAutomorphismSearch, "Molecule automorphism search
 
 MoleculeAutomorphismSearch::MoleculeAutomorphismSearch()
     : TL_CP_GET(_approximation_orbits), TL_CP_GET(_approximation_orbits_saved), TL_CP_GET(_hcount), TL_CP_GET(_cistrans_stereo_bond_parity), TL_CP_GET(_degree),
-      TL_CP_GET(_independent_component_index), TL_CP_GET(_stereocenter_state), TL_CP_GET(_cistrans_bond_state)
+      TL_CP_GET(_independent_component_index), TL_CP_GET(_stereocenter_state), TL_CP_GET(_cistrans_bond_state), TL_CP_GET(_mapped_compare_mapping2),
+      TL_CP_GET(_mapped_compare_inverse2), TL_CP_GET(_mapped_compare_neighbor_offsets), TL_CP_GET(_mapped_compare_neighbors2)
 {
     cb_vertex_cmp = _vertex_cmp;
     cb_edge_rank = _edge_rank;
@@ -46,6 +47,7 @@ MoleculeAutomorphismSearch::MoleculeAutomorphismSearch()
     detect_invalid_stereocenters = false;
     detect_invalid_cistrans_bonds = false;
     find_canonical_ordering = false;
+    _mapped_compare_cache_valid = false;
     _fixed_atom = -1;
 
     allow_undefined = false;
@@ -86,6 +88,7 @@ void MoleculeAutomorphismSearch::_getFirstApproximation(Molecule& mol)
     _approximation_orbits.fffill();
 
     profTimerStart(t0, "mol_auto.first_search");
+    _invalidateMappedComparisonCache();
     AutomorphismSearch::process(mol);
     profTimerStop(t0);
 
@@ -214,6 +217,7 @@ void MoleculeAutomorphismSearch::process(Molecule& mol)
     if (find_canonical_ordering)
     {
         profTimerStart(t0, "mol_auto.final_search");
+        _invalidateMappedComparisonCache();
         AutomorphismSearch::process(mol);
         profTimerStop(t0);
     }
@@ -403,7 +407,6 @@ bool MoleculeAutomorphismSearch::_check_automorphism(Graph& graph, const Array<i
 
     return true;
 }
-
 bool MoleculeAutomorphismSearch::_checkStereocentersAutomorphism(Molecule& mol, const Array<int>& mapping) const
 {
     const MoleculeStereocenters& stereocenters = mol.stereocenters;
@@ -415,8 +418,7 @@ bool MoleculeAutomorphismSearch::_checkStereocentersAutomorphism(Molecule& mol, 
         else
             stereocenters_valid_filter.init(_stereocenter_state.ptr(), Filter::EQ, _VALID);
 
-        bool ret = MoleculeStereocenters::checkSub(mol, mol, mapping.ptr(), false, &stereocenters_valid_filter);
-        if (!ret)
+        if (!MoleculeStereocenters::checkSub(mol, mol, mapping.ptr(), false, &stereocenters_valid_filter))
             return false;
 
         QS_DEF(Array<int>, inv_mapping);
@@ -428,12 +430,12 @@ bool MoleculeAutomorphismSearch::_checkStereocentersAutomorphism(Molecule& mol, 
                 inv_mapping[mapping[i]] = i;
         }
 
-        ret = MoleculeStereocenters::checkSub(mol, mol, inv_mapping.ptr(), false, &stereocenters_valid_filter);
-        if (!ret)
+        if (!MoleculeStereocenters::checkSub(mol, mol, inv_mapping.ptr(), false, &stereocenters_valid_filter))
             return false;
     }
     return true;
 }
+
 
 void MoleculeAutomorphismSearch::_getSortedNei(Graph& g, int v_idx, Array<EdgeInfo>& sorted_nei, Array<int>& inv_mapping)
 {
@@ -462,6 +464,7 @@ void MoleculeAutomorphismSearch::_getSortedNei(Graph& g, int v_idx, Array<EdgeIn
 
         EdgeInfo& info = sorted_nei[j + 1];
         info.mapped_vertex = nei_v_mapped;
+        info.mapped_type = 0;
         info.edge = v.neiEdge(nei);
     }
 }
@@ -480,29 +483,58 @@ int MoleculeAutomorphismSearch::_getMappedBondOrderAndParity(Molecule& m, int e,
     return type;
 }
 
+void MoleculeAutomorphismSearch::_invalidateMappedComparisonCache()
+{
+    _mapped_compare_cache_valid = false;
+}
+
 int MoleculeAutomorphismSearch::_compare_mapped(Graph& graph, const Array<int>& mapping1, const Array<int>& mapping2, const void* context)
 {
-    const MoleculeAutomorphismSearch& self = *(MoleculeAutomorphismSearch*)context;
+    MoleculeAutomorphismSearch& self = *(MoleculeAutomorphismSearch*)context;
     Molecule& mol = (Molecule&)graph;
 
     QS_DEF(Array<int>, inv_mapping1);
-    QS_DEF(Array<int>, inv_mapping2);
 
     inv_mapping1.clear_resize(graph.vertexEnd());
-    inv_mapping2.clear_resize(graph.vertexEnd());
-
     inv_mapping1.fffill();
-    inv_mapping2.fffill();
 
     for (int i = 0; i < mapping1.size(); i++)
-    {
         inv_mapping1[mapping1[i]] = i;
-        inv_mapping2[mapping2[i]] = i;
-    }
 
-    //   int min_diff_beg = graph.vertexEnd();
-    //   int min_diff_end = graph.vertexEnd();
-    //   int diff_sign = 0;
+    bool cache_matches = self._mapped_compare_cache_valid && self._mapped_compare_mapping2.size() == mapping2.size();
+    for (int i = 0; cache_matches && i < mapping2.size(); i++)
+        cache_matches = self._mapped_compare_mapping2[i] == mapping2[i];
+
+    if (!cache_matches)
+    {
+        self._mapped_compare_cache_valid = false;
+        self._mapped_compare_mapping2.clear_resize(mapping2.size());
+        self._mapped_compare_inverse2.clear_resize(graph.vertexEnd());
+        self._mapped_compare_inverse2.fffill();
+
+        for (int i = 0; i < mapping2.size(); i++)
+        {
+            self._mapped_compare_mapping2[i] = mapping2[i];
+            self._mapped_compare_inverse2[mapping2[i]] = i;
+        }
+
+        self._mapped_compare_neighbor_offsets.clear_resize(mapping2.size() + 1);
+        self._mapped_compare_neighbors2.clear();
+        QS_DEF(Array<EdgeInfo>, sorted_nei2);
+        for (int i = 0; i < mapping2.size(); i++)
+        {
+            self._mapped_compare_neighbor_offsets[i] = self._mapped_compare_neighbors2.size();
+            _getSortedNei(graph, mapping2[i], sorted_nei2, self._mapped_compare_inverse2);
+            for (int j = 0; j < sorted_nei2.size(); j++)
+            {
+                EdgeInfo& info = sorted_nei2[j];
+                info.mapped_type = self._getMappedBondOrderAndParity(mol, info.edge, self._mapped_compare_inverse2);
+                self._mapped_compare_neighbors2.push(info);
+            }
+        }
+        self._mapped_compare_neighbor_offsets[mapping2.size()] = self._mapped_compare_neighbors2.size();
+        self._mapped_compare_cache_valid = true;
+    }
 
     // This function compares two mappings to select one of it
     // according to the defined (here) order.
@@ -510,37 +542,37 @@ int MoleculeAutomorphismSearch::_compare_mapped(Graph& graph, const Array<int>& 
     // To compare two mapping we compare their connectivity matrix
 
     QS_DEF(Array<EdgeInfo>, sorted_nei1);
-    QS_DEF(Array<EdgeInfo>, sorted_nei2);
 
     // Compare connectivity matrix line by line
     for (int i = 0; i < mapping1.size(); i++)
     {
         _getSortedNei(graph, mapping1[i], sorted_nei1, inv_mapping1);
-        _getSortedNei(graph, mapping2[i], sorted_nei2, inv_mapping2);
+        int nei2_begin = self._mapped_compare_neighbor_offsets[i];
+        int nei2_size = self._mapped_compare_neighbor_offsets[i + 1] - nei2_begin;
 
-        if (sorted_nei1.size() != sorted_nei2.size())
-            return sorted_nei1.size() > sorted_nei2.size() ? 1 : -1;
+        if (sorted_nei1.size() != nei2_size)
+            return sorted_nei1.size() > nei2_size ? 1 : -1;
 
         for (int j = 0; j < sorted_nei1.size(); j++)
         {
             int m1 = sorted_nei1[j].mapped_vertex;
-            int m2 = sorted_nei2[j].mapped_vertex;
+            const EdgeInfo& nei2 = self._mapped_compare_neighbors2[nei2_begin + j];
+            int m2 = nei2.mapped_vertex;
             if (m1 != m2)
                 return m1 > m2 ? 1 : -1;
 
             int e1 = sorted_nei1[j].edge;
-            int e2 = sorted_nei2[j].edge;
 
             // Compare edge bond orders and parities
             int type1 = self._getMappedBondOrderAndParity(mol, e1, inv_mapping1);
-            int type2 = self._getMappedBondOrderAndParity(mol, e2, inv_mapping2);
+            int type2 = nei2.mapped_type;
 
             if (type1 != type2)
                 return type1 > type2 ? 1 : -1;
         }
     }
 
-    return self._compareMappedStereocenters(mol, mapping1, mapping2, inv_mapping1, inv_mapping2);
+    return self._compareMappedStereocenters(mol, mapping1, mapping2, inv_mapping1, self._mapped_compare_inverse2);
 }
 
 int MoleculeAutomorphismSearch::_compareMappedStereocenters(Molecule& mol, const Array<int>& mapping1, const Array<int>& mapping2,
@@ -1108,6 +1140,7 @@ bool MoleculeAutomorphismSearch::_findInvalidStereo(Molecule& mol)
             }
         }
 
+        _invalidateMappedComparisonCache();
         AutomorphismSearch::process(mol);
 
         if (_target_stereocenter_parity_inv)
@@ -1187,6 +1220,7 @@ bool MoleculeAutomorphismSearch::_checkCisTransInvalid(Molecule& mol, int bond_i
     _target_bond_parity_inv = false;
     _fixed_atom = mol.getEdge(bond_idx).beg;
 
+    _invalidateMappedComparisonCache();
     AutomorphismSearch::process(mol);
 
     _target_bond = -1;

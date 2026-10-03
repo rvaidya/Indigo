@@ -123,7 +123,10 @@ namespace indigo
 
         TL_CP_DECL(ReusableObjArray<Array<int>>, _fix);
         TL_CP_DECL(ReusableObjArray<Array<int>>, _mcr);
+        TL_CP_DECL(ReusableObjArray<Array<int>>, _moved_vertices);
         TL_CP_DECL(ReusableObjArray<Array<int>>, _seeded_component_automorphisms);
+        TL_CP_DECL(ReusableObjArray<Array<int>>, _generators_by_vertex);
+        TL_CP_DECL(Array<int>, _fixed_generator_count);
 
         TL_CP_DECL(Array<int>, _active);
         TL_CP_DECL(Array<int>, _workperm);
@@ -136,6 +139,14 @@ namespace indigo
         TL_CP_DECL(Array<int>, _fixedpts);
         TL_CP_DECL(Array<int[2]>, _work_active_cells);
         TL_CP_DECL(Array<int>, _edge_ranks_in_refine);
+        TL_CP_DECL(Array<int>, _edge_rank_cache);
+        TL_CP_DECL(Array<int>, _edge_counts);
+        TL_CP_DECL(Array<int>, _edge_count_touched);
+        TL_CP_DECL(Array<int>, _generator_seen_epoch);
+        TL_CP_DECL(Array<int>, _long_prune_candidates);
+        TL_CP_DECL(Array<int>, _lab_position);
+        TL_CP_DECL(Array<int>, _cell_starts);
+        TL_CP_DECL(Array<int>, _ptn_change_stack);
 
         int _n;
         Graph* _given_graph;
@@ -145,13 +156,20 @@ namespace indigo
         int _cosetindex;
         bool _needshortprune;
         int _orbits_num;
+        int _long_prune_epoch;
 
         void _prepareGraph(Graph& graph);
         void _seedDisconnectedComponentAutomorphisms();
         void _activateSeededComponentAutomorphisms();
-        void _storeComponentAutomorphism(const Array<int>& permutation, bool save_for_orbits);
+        void _storeAutomorphism(const Array<int>& permutation, bool save_for_orbits);
+        void _registerGenerator(int generator_index);
+        void _removeGenerator(int generator_index);
+        void _setFixedPoint(int vertex, int value);
         bool _isPermutation(const Array<int>& permutation);
-        bool _trySeedComponentSwap(const GraphDecomposer& decomposer, int component1, int component2, Array<int>& permutation);
+        bool _trySeedComponentSwap(const GraphDecomposer& decomposer, int component1, int component2, Array<int>& permutation,
+                                   ReusableObjArray<Array<int>>* automorphisms = nullptr, int max_automorphisms = 1);
+        void _insertCellStart(int start);
+        void _removeCellStart(int start);
 
         static bool _componentVertexMatch(Graph& subgraph, Graph& supergraph, const int* core_sub, int sub_idx, int super_idx, void* userdata);
         static bool _componentEdgeMatch(Graph& subgraph, Graph& supergraph, int sub_idx, int super_idx, void* userdata);
@@ -165,15 +183,14 @@ namespace indigo
         int _targetcell(int level, Array<int>& cell);
         void _breakout(int level, int tc, int tv);
         int _shortPrune(Array<int>& tcell, Array<int>& mcr, int idx);
-        int _longPrune(Array<int>& tcell, Array<int>& fix, int idx);
+        int _longPrune(Array<int>& tcell, int idx);
         void _recover(int level);
         int _processNode(int level, int numcells);
         bool _isAutomorphism(Array<int>& perm);
         int _compareCanon();
-        void _buildFixMcr(const Array<int>& perm, Array<int>& fix, Array<int>& mcr);
+        void _buildFixMcr(const Array<int>& perm, Array<int>& fix, Array<int>& mcr, Array<int>& moved_vertices);
         void _joinOrbits(const Array<int>& perm);
         void _handleAutomorphism(const Array<int>& perm);
-        bool _hasEdgeWithRank(int from, int to, int target_edge_rank);
 
         static int _cmp_vertices(int idx1, int idx2, void* context);
         std::shared_ptr<CancellationHandler> _cancellation_handler;

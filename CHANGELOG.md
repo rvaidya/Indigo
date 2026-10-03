@@ -5,7 +5,7 @@ Released 2026-07-10
 * #3333 - Use BIOVIA post 2014 valence table to calculate atomic valences from molfiles
 
 ## Bugfixes and improvements
-* #3941 - Fix canonical SMILES timeouts for disconnected stereochemical components
+* #3941 - Improve global canonical search performance for equivalent disconnected components
 * #3599 - Bond length become wrong after Arrange as a Ring option applied
 * #3648 - Integration tests may fails in MT mode
 * #3283 - SVG export fails, with S-Groups

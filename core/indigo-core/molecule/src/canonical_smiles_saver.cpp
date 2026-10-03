@@ -93,11 +93,8 @@ void CanonicalSmilesSaver::saveMolecule(Molecule& mol)
     of.detect_invalid_stereocenters = find_invalid_stereo;
     of.find_canonical_ordering = true;
     of.ignored_vertices = ignored.ptr();
-    if (!of.getCanonicalDisconnectedComponentNumbering(_mol, ignored, order))
-    {
-        of.process(_mol);
-        of.getCanonicalNumbering(order);
-    }
+    of.process(_mol);
+    of.getCanonicalNumbering(order);
 
     for (i = _mol.edgeBegin(); i != _mol.edgeEnd(); i = _mol.edgeNext(i))
         if (_mol.cis_trans.getParity(i) != 0 && of.invalidCisTransBond(i))

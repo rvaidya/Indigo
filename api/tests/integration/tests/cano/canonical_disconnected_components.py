@@ -41,7 +41,6 @@ print("canonical disconnected components: PASS")
 roundtrip = indigo.loadMolecule(canonical)
 if roundtrip.canonicalSmiles() != canonical:
     raise Exception("canonical SMILES changed after reload")
-print("roundtrip: PASS")
 
 permuted_source = ".".join(reversed(SOURCE.split(".")))
 permuted = indigo.loadMolecule(permuted_source)

@@ -27,11 +27,9 @@ namespace indigo
     class Molecule;
     class MoleculeStereocenters;
     class CancellationHandler;
-    class CanonicalSmilesSaver;
 
     class MoleculeAutomorphismSearch : public AutomorphismSearch
     {
-        friend class CanonicalSmilesSaver;
     public:
         MoleculeAutomorphismSearch();
         ~MoleculeAutomorphismSearch() override
@@ -82,10 +80,7 @@ namespace indigo
         bool _checkStereocentersAutomorphism(Molecule& mol, const Array<int>& mapping) const;
 
         void _initialize(Molecule& mol);
-        bool getCanonicalDisconnectedComponentNumbering(Molecule& mol, Array<int>& ignored, Array<int>& numbering);
         void _calculateHydrogensAndDegree(Molecule& mol);
-        bool _getCanonicalComponentOrder(Molecule& mol, Array<int>& numbering);
-        int _compareCanonicalComponentOrders(Molecule& mol, const Array<int>& order1, const Array<int>& order2) const;
         void _getFirstApproximation(Molecule& mol);
 
         int _validCisTransBond(int idx, const Array<int>& orbits);
@@ -133,6 +128,16 @@ namespace indigo
         };
         TL_CP_DECL(Array<int>, _stereocenter_state);
         TL_CP_DECL(Array<int>, _cistrans_bond_state);
+        TL_CP_DECL(Array<int>, _compare_cached_mapping);
+        TL_CP_DECL(Array<int>, _compare_cached_inverse_mapping);
+        TL_CP_DECL(Array<int>, _compare_cached_row_offsets);
+        TL_CP_DECL(Array<int>, _compare_cached_edge_types);
+        TL_CP_DECL(Array<EdgeInfo>, _compare_cached_neighbors);
+        TL_CP_DECL(Array<int>, _compare_cached_stereo_positions);
+        TL_CP_DECL(Array<int>, _compare_stereo_types);
+        TL_CP_DECL(Array<int>, _compare_stereo_groups);
+        TL_CP_DECL(Array<int[4]>, _compare_stereo_pyramids);
+        int _compare_max_stereogroup;
 
         // Target stereocenters and cis-trans bond for checking permutation parity
         int _target_stereocenter, _target_bond;

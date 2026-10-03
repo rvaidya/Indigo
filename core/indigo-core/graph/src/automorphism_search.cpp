@@ -21,6 +21,10 @@
 #include "graph/embedding_enumerator.h"
 #include "graph/graph_decomposer.h"
 
+#include <limits>
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
 using namespace indigo;
 
 IMPL_ERROR(AutomorphismSearch, "automorphism search");
@@ -36,13 +40,38 @@ namespace
         const Array<int>* sub_to_graph;
         const Array<int>* super_to_graph;
     };
+
+    struct SearchProfile
+    {
+        uint64_t dispatches = 0;
+        uint64_t refine_calls = 0;
+        uint64_t refine_ns = 0;
+        uint64_t target_calls = 0;
+        uint64_t target_ns = 0;
+        uint64_t prune_calls = 0;
+        uint64_t prune_ns = 0;
+        uint64_t compare_calls = 0;
+        uint64_t compare_ns = 0;
+        uint64_t automorphism_checks = 0;
+        int components = 0;
+        int classes = 0;
+        int seeded = 0;
+        int generators = 0;
+    };
+
+    SearchProfile search_profile;
+    using ProfileClock = std::chrono::steady_clock;
+
 }
+
 
 AutomorphismSearch::AutomorphismSearch()
     : CP_INIT, TL_CP_GET(_call_stack), TL_CP_GET(_lab), TL_CP_GET(_ptn), TL_CP_GET(_graph), TL_CP_GET(_mapping), TL_CP_GET(_inv_mapping), TL_CP_GET(_degree),
-      TL_CP_GET(_tcells), TL_CP_GET(_fix), TL_CP_GET(_mcr), TL_CP_GET(_seeded_component_automorphisms), TL_CP_GET(_active), TL_CP_GET(_workperm),
-      TL_CP_GET(_workperm2), TL_CP_GET(_bucket), TL_CP_GET(_count), TL_CP_GET(_firstlab), TL_CP_GET(_canonlab), TL_CP_GET(_orbits), TL_CP_GET(_fixedpts),
-      TL_CP_GET(_work_active_cells), TL_CP_GET(_edge_ranks_in_refine)
+      TL_CP_GET(_tcells), TL_CP_GET(_fix), TL_CP_GET(_mcr), TL_CP_GET(_moved_vertices), TL_CP_GET(_seeded_component_automorphisms),
+      TL_CP_GET(_generators_by_vertex), TL_CP_GET(_fixed_generator_count), TL_CP_GET(_active), TL_CP_GET(_workperm), TL_CP_GET(_workperm2), TL_CP_GET(_bucket),
+      TL_CP_GET(_count), TL_CP_GET(_firstlab), TL_CP_GET(_canonlab), TL_CP_GET(_orbits), TL_CP_GET(_fixedpts), TL_CP_GET(_work_active_cells),
+      TL_CP_GET(_edge_ranks_in_refine), TL_CP_GET(_edge_rank_cache), TL_CP_GET(_edge_counts), TL_CP_GET(_edge_count_touched),
+      TL_CP_GET(_generator_seen_epoch), TL_CP_GET(_long_prune_candidates), TL_CP_GET(_lab_position), TL_CP_GET(_cell_starts), TL_CP_GET(_ptn_change_stack)
 {
     getcanon = true;
     compare_vertex_degree_first = true;
@@ -59,6 +88,7 @@ AutomorphismSearch::AutomorphismSearch()
     cb_edge_rank = 0;
     context_automorphism = 0;
     _given_graph = 0;
+    _long_prune_epoch = 0;
     ignored_vertices = 0;
 
     _cancellation_handler = getCancellationHandler();
@@ -243,7 +273,8 @@ bool AutomorphismSearch::_componentEdgeMatch(Graph& subgraph, Graph& supergraph,
     return self.cb_edge_rank(*self._given_graph, original_sub, self.context) == self.cb_edge_rank(*self._given_graph, original_super, self.context);
 }
 
-bool AutomorphismSearch::_trySeedComponentSwap(const GraphDecomposer& decomposer, int component1, int component2, Array<int>& permutation)
+bool AutomorphismSearch::_trySeedComponentSwap(const GraphDecomposer& decomposer, int component1, int component2, Array<int>& permutation,
+                                               ReusableObjArray<Array<int>>* automorphisms, int max_automorphisms)
 {
     if (decomposer.getComponentVerticesCount(component1) != decomposer.getComponentVerticesCount(component2) ||
         decomposer.getComponentEdgesCount(component1) != decomposer.getComponentEdgesCount(component2))
@@ -259,7 +290,7 @@ bool AutomorphismSearch::_trySeedComponentSwap(const GraphDecomposer& decomposer
         int component = decomposer.getComponent(i);
         if (component == component1)
             component1_vertices.push(i);
-        else if (component == component2)
+        if (component == component2)
             component2_vertices.push(i);
     }
 
@@ -320,6 +351,7 @@ bool AutomorphismSearch::_trySeedComponentSwap(const GraphDecomposer& decomposer
         // The embedding maps query-local vertices to target-local vertices.
         const int* mapping = enumerator.getSubgraphMapping();
         bool valid_mapping = true;
+        bool identity_mapping = true;
 
         for (int i = component1_graph.vertexBegin(); i != component1_graph.vertexEnd(); i = component1_graph.vertexNext(i))
         {
@@ -335,23 +367,41 @@ bool AutomorphismSearch::_trySeedComponentSwap(const GraphDecomposer& decomposer
             if (graph_vertex1 < 0 || graph_vertex1 >= _n || graph_vertex2 < 0 || graph_vertex2 >= _n)
                 throw Error("internal: incomplete disconnected component automorphism mapping");
 
+            if (graph_vertex1 != graph_vertex2)
+                identity_mapping = false;
             candidate_permutation[graph_vertex1] = graph_vertex2;
-            candidate_permutation[graph_vertex2] = graph_vertex1;
+            if (component1 != component2)
+                candidate_permutation[graph_vertex2] = graph_vertex1;
         }
 
-        if (!valid_mapping)
+        if (!valid_mapping || (component1 == component2 && identity_mapping))
             continue;
         if (!_isPermutation(candidate_permutation))
+        {
+            if (component1 == component2)
+                continue;
             throw Error("internal: disconnected component swap is not a permutation");
+        }
         if (!_isAutomorphism(candidate_permutation))
             continue;
 
+        if (automorphisms != nullptr)
+        {
+            automorphisms->push().copy(candidate_permutation);
+            if (automorphisms->size() == 1)
+                permutation.copy(candidate_permutation);
+            if (automorphisms->size() >= max_automorphisms)
+                return true;
+            continue;
+        }
         permutation.copy(candidate_permutation);
         return true;
     }
 
-    return false;
+    return automorphisms != nullptr && automorphisms->size() > 0;
 }
+
+
 
 bool AutomorphismSearch::_isPermutation(const Array<int>& permutation)
 {
@@ -369,16 +419,88 @@ bool AutomorphismSearch::_isPermutation(const Array<int>& permutation)
     return true;
 }
 
-void AutomorphismSearch::_storeComponentAutomorphism(const Array<int>& permutation, bool save_for_orbits)
+
+void AutomorphismSearch::_storeAutomorphism(const Array<int>& permutation, bool save_for_orbits)
 {
     if (_fix.size() == worksize)
     {
+        _removeGenerator(_fix.size() - 1);
         _fix.pop();
         _mcr.pop();
+        _moved_vertices.pop();
     }
-    _buildFixMcr(permutation, _fix.push(), _mcr.push());
+
+    int generator_index = _fix.size();
+    _buildFixMcr(permutation, _fix.push(), _mcr.push(), _moved_vertices.push());
+    _fixed_generator_count.push(0);
+    _registerGenerator(generator_index);
     if (save_for_orbits)
+    {
         _seeded_component_automorphisms.push().copy(permutation);
+    }
+}
+
+void AutomorphismSearch::_registerGenerator(int generator_index)
+{
+    const Array<int>& moved_vertices = _moved_vertices[generator_index];
+    for (int i = 0; i < moved_vertices.size(); i++)
+    {
+        int vertex = moved_vertices[i];
+        _generators_by_vertex[vertex].push(generator_index);
+        _fixed_generator_count[generator_index] += _fixedpts[vertex];
+    }
+}
+
+void AutomorphismSearch::_removeGenerator(int generator_index)
+{
+    const Array<int>& moved_vertices = _moved_vertices[generator_index];
+    for (int i = 0; i < moved_vertices.size(); i++)
+    {
+        Array<int>& generators = _generators_by_vertex[moved_vertices[i]];
+        for (int j = 0; j < generators.size(); j++)
+            if (generators[j] == generator_index)
+            {
+                generators.remove(j);
+                break;
+            }
+    }
+    _fixed_generator_count.pop();
+}
+
+void AutomorphismSearch::_setFixedPoint(int vertex, int value)
+{
+    if (_fixedpts[vertex] == value)
+        return;
+
+    int delta = value == 0 ? -1 : 1;
+    Array<int>& generators = _generators_by_vertex[vertex];
+    for (int i = 0; i < generators.size(); i++)
+        _fixed_generator_count[generators[i]] += delta;
+    _fixedpts[vertex] = value;
+}
+void AutomorphismSearch::_insertCellStart(int start)
+{
+    int position = 0;
+    while (position < _cell_starts.size() && _cell_starts[position] < start)
+        position++;
+    if (position < _cell_starts.size() && _cell_starts[position] == start)
+        return;
+
+    _cell_starts.push(0);
+    for (int i = _cell_starts.size() - 1; i > position; i--)
+        _cell_starts[i] = _cell_starts[i - 1];
+    _cell_starts[position] = start;
+}
+
+void AutomorphismSearch::_removeCellStart(int start)
+{
+    for (int position = 0; position < _cell_starts.size(); position++)
+        if (_cell_starts[position] == start)
+        {
+            _cell_starts.remove(position);
+            return;
+        }
+    throw Error("internal: cell start %d is missing", start);
 }
 
 void AutomorphismSearch::_seedDisconnectedComponentAutomorphisms()
@@ -390,68 +512,73 @@ void AutomorphismSearch::_seedDisconnectedComponentAutomorphisms()
 
     QS_DEF(Array<int>, representatives);
     QS_DEF(Array<int>, component_representatives);
-    QS_DEF(Array<int>, representative_swap_indices);
+    QS_DEF(Array<int>, permutation);
+    ReusableObjArray<Array<int>> component_automorphisms;
     representatives.clear();
     component_representatives.clear_resize(components_count);
     component_representatives.fffill();
-    representative_swap_indices.clear_resize(components_count);
-    representative_swap_indices.fffill();
-
-    ReusableObjArray<Array<int>> representative_swaps;
-    QS_DEF(Array<int>, permutation);
-    QS_DEF(Array<int>, pair_permutation);
 
     for (int component = 0; component < components_count; component++)
     {
         int representative = -1;
-
         for (int i = 0; i < representatives.size(); i++)
         {
             int candidate = representatives[i];
             if (decomposer.getComponentVerticesCount(candidate) != decomposer.getComponentVerticesCount(component) ||
                 decomposer.getComponentEdgesCount(candidate) != decomposer.getComponentEdgesCount(component))
                 continue;
-
             if (_trySeedComponentSwap(decomposer, candidate, component, permutation))
             {
                 representative = candidate;
                 break;
             }
         }
-
         if (representative == -1)
         {
+            representative = component;
             representatives.push(component);
-            component_representatives[component] = component;
-            continue;
         }
-
         component_representatives[component] = representative;
-        int swap_index = representative_swaps.size();
-        representative_swaps.push().copy(permutation);
-        representative_swap_indices[component] = swap_index;
-        _storeComponentAutomorphism(permutation, true);
-
-        for (int previous = 0; previous < component; previous++)
-        {
-            if (component_representatives[previous] != representative || previous == representative)
-                continue;
-
-            const Array<int>& previous_swap = representative_swaps[representative_swap_indices[previous]];
-            pair_permutation.clear_resize(_n);
-            for (int i = 0; i < _n; i++)
-                pair_permutation[i] = permutation[previous_swap[permutation[i]]];
-
-            if (!_isPermutation(pair_permutation) || !_isAutomorphism(pair_permutation))
-                throw Error("internal: component swap composition failed for components %d and %d", previous, component);
-            _storeComponentAutomorphism(pair_permutation, false);
-        }
     }
+    search_profile.components = components_count;
+    search_profile.classes = representatives.size();
+
+    for (int component = 0; component < components_count; component++)
+    {
+
+        component_automorphisms.clear();
+        if (_trySeedComponentSwap(decomposer, component, component, permutation, &component_automorphisms, 4))
+            for (int i = 0; i < component_automorphisms.size(); i++)
+                _storeAutomorphism(component_automorphisms[i], true);
+    }
+
+    for (int component = 0; component < components_count; component++)
+    {
+        int representative = component_representatives[component];
+        int next = -1;
+        int class_size = 0;
+        for (int candidate = 0; candidate < components_count; candidate++)
+            if (component_representatives[candidate] == representative)
+            {
+                class_size++;
+                if (candidate > component && next == -1)
+                    next = candidate;
+            }
+        if (next == -1 && component != representative && class_size > 2)
+            next = representative;
+        if (next != -1 && _trySeedComponentSwap(decomposer, component, next, permutation))
+            _storeAutomorphism(permutation, true);
+    }
+    search_profile.seeded = _seeded_component_automorphisms.size();
+    search_profile.generators = _fix.size();
+
 }
 
 void AutomorphismSearch::_activateSeededComponentAutomorphisms()
 {
-    for (int i = 0; i < _seeded_component_automorphisms.size(); i++)
+    int pending = _seeded_component_automorphisms.size();
+    search_profile.seeded = pending;
+    for (int i = 0; i < pending; i++)
     {
         const Array<int>& permutation = _seeded_component_automorphisms[i];
         _joinOrbits(permutation);
@@ -529,6 +656,32 @@ void AutomorphismSearch::getCanonicallyOrderedOrbits(Array<int>& orbits) const
 void AutomorphismSearch::process(Graph& graph)
 {
     _prepareGraph(graph);
+    search_profile = SearchProfile();
+    _lab_position.clear_resize(_n);
+    _cell_starts.clear();
+    _ptn_change_stack.clear();
+    for (int position = 0; position < _n; position++)
+    {
+        _lab_position[_lab[position]] = position;
+        if (position == 0 || _ptn[position - 1] == 0)
+            _cell_starts.push(position);
+    }
+    _edge_counts.clear_resize(_graph.vertexEnd());
+    _edge_counts.zerofill();
+    _edge_count_touched.clear();
+    _edge_rank_cache.clear_resize(_graph.edgeEnd());
+    _edge_rank_cache.zerofill();
+    if (cb_edge_rank != 0)
+        for (int edge_idx = _graph.edgeBegin(); edge_idx != _graph.edgeEnd(); edge_idx = _graph.edgeNext(edge_idx))
+        {
+            const Edge& edge = _graph.getEdge(edge_idx);
+            int mapped_beg = _mapping[edge.beg];
+            int mapped_end = _mapping[edge.end];
+            int mapped_edge_idx = _given_graph->findEdgeIndex(mapped_beg, mapped_end);
+            if (mapped_edge_idx == -1)
+                throw Error("Internal error: edge must exists");
+            _edge_rank_cache[edge_idx] = cb_edge_rank(*_given_graph, mapped_edge_idx, context);
+        }
 
     _active.clear_resize(_n);
     _workperm.clear_resize(_n);
@@ -540,7 +693,15 @@ void AutomorphismSearch::process(Graph& graph)
     _orbits.clear_resize(_n);
     _fix.clear();
     _mcr.clear();
+    _moved_vertices.clear();
     _seeded_component_automorphisms.clear();
+    _generators_by_vertex.clear();
+    for (int i = 0; i < _n; i++)
+        _generators_by_vertex.push().clear();
+    _fixed_generator_count.clear();
+    _generator_seen_epoch.clear();
+    _long_prune_candidates.clear();
+    _long_prune_epoch = 0;
 
     if (_n == 0)
         return;
@@ -572,11 +733,10 @@ void AutomorphismSearch::process(Graph& graph)
         for (i = 0; i < _n; ++i)
             _orbits[i] = i;
 
-        // Keep the first canonical leaf intact; global orbit pruning is enabled after it is known.
         if (getcanon)
+        {
             _seedDisconnectedComponentAutomorphisms();
-
-
+        }
         _Call& call = _call_stack.push();
         call.level = 1;
         call.numcells = numcells;
@@ -587,6 +747,7 @@ void AutomorphismSearch::process(Graph& graph)
 
     while (_call_stack.size() > 0)
     {
+        search_profile.dispatches++;
         _Call call = _call_stack.top();
 
         if (call.place == _INITIAL)
@@ -606,7 +767,7 @@ void AutomorphismSearch::process(Graph& graph)
                 if (tv == call.tv1)
                     _gca_first = call.level;
 
-                _fixedpts[tv] = 0;
+                _setFixedPoint(tv, 0);
 
                 if (retval < call.level)
                 {
@@ -644,7 +805,7 @@ void AutomorphismSearch::process(Graph& graph)
 
             _breakout(call.level + 1, call.tc, tv);
             _cosetindex = tv;
-            _fixedpts[tv] = 1;
+            _setFixedPoint(tv, 1);
 
             _Call& newcall = _call_stack.push();
             newcall.level = call.level + 1;
@@ -682,7 +843,7 @@ void AutomorphismSearch::process(Graph& graph)
                 // handle the value returned from _OTHER_TO_OTHER
                 tv = _tcells[call.level][call.k];
 
-                _fixedpts[tv] = 0;
+                _setFixedPoint(tv, 0);
 
                 if (retval < call.level)
                 {
@@ -698,7 +859,7 @@ void AutomorphismSearch::process(Graph& graph)
                 }
 
                 if (tv == call.tv1)
-                    call.k = _longPrune(_tcells[call.level], _fixedpts, call.k);
+                    call.k = _longPrune(_tcells[call.level], call.k);
 
                 _recover(call.level);
                 // advance the _OTHER_LOOP counter
@@ -718,7 +879,7 @@ void AutomorphismSearch::process(Graph& graph)
             tv = _tcells[call.level][call.k];
 
             _breakout(call.level + 1, call.tc, tv);
-            _fixedpts[tv] = 1;
+            _setFixedPoint(tv, 1);
 
             _Call& newcall = _call_stack.push();
             newcall.level = call.level + 1;
@@ -776,9 +937,7 @@ int AutomorphismSearch::_firstNode(int level, int numcells)
 int AutomorphismSearch::_otherNode(int level, int numcells)
 {
     _refine(level, numcells);
-
     _tcells.resize(level + 1);
-
     int rtnlevel = _processNode(level, numcells);
 
     if (rtnlevel < level) // keep returning if necessary
@@ -810,11 +969,16 @@ int AutomorphismSearch::_otherNode(int level, int numcells)
 
 void AutomorphismSearch::_recover(int level)
 {
-    int i;
 
-    for (i = 0; i < _n; ++i)
-        if (_ptn[i] > level)
-            _ptn[i] = AUTOMORPHISM_INFINITY;
+    while (_ptn_change_stack.size() > 0)
+    {
+        int boundary = _ptn_change_stack.top();
+        if (_ptn[boundary] <= level)
+            break;
+        _ptn[boundary] = AUTOMORPHISM_INFINITY;
+        _removeCellStart(boundary + 1);
+        _ptn_change_stack.pop();
+    }
 
     if (getcanon)
     {
@@ -840,10 +1004,12 @@ void AutomorphismSearch::_breakout(int level, int tc, int tv)
         int next = _lab[i];
 
         _lab[i++] = prev;
+        _lab_position[prev] = i - 1;
         prev = next;
     } while (prev != tv);
-
     _ptn[tc] = level;
+    _ptn_change_stack.push(tc);
+    _insertCellStart(tc + 1);
 }
 
 int AutomorphismSearch::_shortPrune(Array<int>& tcell, Array<int>& mcr, int idx)
@@ -861,20 +1027,56 @@ int AutomorphismSearch::_shortPrune(Array<int>& tcell, Array<int>& mcr, int idx)
     return ret;
 }
 
-int AutomorphismSearch::_longPrune(Array<int>& tcell, Array<int>& fixed, int idx)
+int AutomorphismSearch::_longPrune(Array<int>& tcell, int idx)
 {
+    auto profile_start = ProfileClock::now();
+    search_profile.prune_calls++;
     int i, j, k;
     int ret = idx;
 
-    for (k = 0; k < _fix.size(); k++)
+    if (_generator_seen_epoch.size() < _fix.size())
     {
-        for (j = 0; j < _n; j++)
-            if (_fix[k][j] == 0 && fixed[j] == 1)
-                break;
+        int old_size = _generator_seen_epoch.size();
+        _generator_seen_epoch.resize(_fix.size());
+        for (int generator = old_size; generator < _generator_seen_epoch.size(); generator++)
+            _generator_seen_epoch[generator] = 0;
+    }
+    if (_long_prune_epoch == std::numeric_limits<int>::max())
+    {
+        _generator_seen_epoch.zerofill();
+        _long_prune_epoch = 0;
+    }
+    int epoch = ++_long_prune_epoch;
+    _long_prune_candidates.clear();
+    for (int position = 0; position < tcell.size(); position++)
+    {
+        const Array<int>& generators = _generators_by_vertex[tcell[position]];
+        for (int generator_index = 0; generator_index < generators.size(); generator_index++)
+        {
+            int generator = generators[generator_index];
+            if (_generator_seen_epoch[generator] != epoch)
+            {
+                _generator_seen_epoch[generator] = epoch;
+                _long_prune_candidates.push(generator);
+            }
+        }
+    }
 
-        if (j != _n)
+    for (int candidate_index = 0; candidate_index < _long_prune_candidates.size(); candidate_index++)
+    {
+        k = _long_prune_candidates[candidate_index];
+        if (_fixed_generator_count[k] != 0)
             continue;
 
+        bool affects_target_cell = false;
+        for (int position = 0; position < tcell.size(); position++)
+            if (!_mcr[k][tcell[position]])
+            {
+                affects_target_cell = true;
+                break;
+            }
+        if (!affects_target_cell)
+            continue;
         for (i = j = 0; i < tcell.size(); i++)
             if (_mcr[k][tcell[i]])
                 tcell[j++] = tcell[i];
@@ -885,6 +1087,7 @@ int AutomorphismSearch::_longPrune(Array<int>& tcell, Array<int>& fixed, int idx
         idx = ret;
     }
 
+    search_profile.prune_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(ProfileClock::now() - profile_start).count();
     return ret;
 }
 
@@ -899,8 +1102,18 @@ int AutomorphismSearch::_processNode(int level, int numcells)
     if (numcells != _n) // discrete partition?
         return level;
 
+
     if (_cancellation_handler != nullptr && _cancellation_handler->isCancelled())
     {
+        std::fprintf(stderr,
+                     "PROFILE n=%d components=%d classes=%d generators=%d seeded=%d dispatch=%llu refine=%llu/%llu ms target=%llu/%llu ms prune=%llu/%llu ms compare=%llu/%llu ms checks=%llu\\n",
+                     _n, search_profile.components, search_profile.classes, search_profile.generators, search_profile.seeded,
+                     (unsigned long long)search_profile.dispatches, (unsigned long long)search_profile.refine_calls,
+                     (unsigned long long)(search_profile.refine_ns / 1000000),
+                     (unsigned long long)search_profile.target_calls, (unsigned long long)(search_profile.target_ns / 1000000),
+                     (unsigned long long)search_profile.prune_calls, (unsigned long long)(search_profile.prune_ns / 1000000),
+                     (unsigned long long)search_profile.compare_calls, (unsigned long long)(search_profile.compare_ns / 1000000),
+                     (unsigned long long)search_profile.automorphism_checks);
         throw TimeoutException("%s", _cancellation_handler->cancelledRequestMessage());
     }
 
@@ -910,12 +1123,7 @@ int AutomorphismSearch::_processNode(int level, int numcells)
     if (_isAutomorphism(_workperm))
     {
         // _lab is equivalent to firstlab
-        if (_fix.size() == worksize)
-        {
-            _fix.pop();
-            _mcr.pop();
-        }
-        _buildFixMcr(_workperm, _fix.push(), _mcr.push());
+        _storeAutomorphism(_workperm, false);
         _joinOrbits(_workperm);
         _handleAutomorphism(_workperm);
 
@@ -941,12 +1149,7 @@ int AutomorphismSearch::_processNode(int level, int numcells)
             for (i = 0; i < _n; i++)
                 _workperm[_canonlab[i]] = _lab[i];
 
-            if (_fix.size() == worksize)
-            {
-                _fix.pop();
-                _mcr.pop();
-            }
-            _buildFixMcr(_workperm, _fix.push(), _mcr.push());
+            _storeAutomorphism(_workperm, false);
 
             int norb = _orbits_num;
 
@@ -1007,6 +1210,7 @@ void AutomorphismSearch::_joinOrbits(const Array<int>& perm)
 
 bool AutomorphismSearch::_isAutomorphism(Array<int>& perm)
 {
+    search_profile.automorphism_checks++;
     for (int i = _graph.edgeBegin(); i != _graph.edgeEnd(); i = _graph.edgeNext(i))
     {
         const Edge& edge = _graph.getEdge(i);
@@ -1035,6 +1239,8 @@ bool AutomorphismSearch::_isAutomorphism(Array<int>& perm)
 int AutomorphismSearch::_compareCanon()
 {
     int i;
+    auto profile_start = ProfileClock::now();
+    search_profile.compare_calls++;
 
     QS_DEF(Array<int>, map);
     QS_DEF(Array<int>, canon_map);
@@ -1050,15 +1256,18 @@ int AutomorphismSearch::_compareCanon()
 
     if (cb_compare_mapped == 0)
         throw Error("cb_compare_mapped = 0");
-    return cb_compare_mapped(*_given_graph, map, canon_map, context);
+    int result = cb_compare_mapped(*_given_graph, map, canon_map, context);
+    search_profile.compare_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(ProfileClock::now() - profile_start).count();
+    return result;
 }
 
-void AutomorphismSearch::_buildFixMcr(const Array<int>& perm, Array<int>& fix, Array<int>& mcr)
+void AutomorphismSearch::_buildFixMcr(const Array<int>& perm, Array<int>& fix, Array<int>& mcr, Array<int>& moved_vertices)
 {
     int i;
 
     fix.clear_resize(_n);
     mcr.clear_resize(_n);
+    moved_vertices.clear();
     fix.zerofill();
     mcr.zerofill();
 
@@ -1066,6 +1275,9 @@ void AutomorphismSearch::_buildFixMcr(const Array<int>& perm, Array<int>& fix, A
 
     for (i = 0; i < _n; ++i)
     {
+        if (perm[i] != i)
+            moved_vertices.push(i);
+
         if (perm[i] == i)
         {
             fix[i] = 1;
@@ -1086,34 +1298,34 @@ void AutomorphismSearch::_buildFixMcr(const Array<int>& perm, Array<int>& fix, A
     }
 }
 
-int AutomorphismSearch::_targetcell(int level, Array<int>& cell)
+int AutomorphismSearch::_targetcell(int /*level*/, Array<int>& cell)
 {
     int i = 0, j, k;
+    auto profile_start = ProfileClock::now();
+    search_profile.target_calls++;
     int ibest = -1, jbest = -1, bestdegree = -1;
-
-    while (i < _n)
+    for (int cell_index = 0; cell_index < _cell_starts.size(); cell_index++)
     {
-        for (; i < _n && _ptn[i] <= level; ++i)
-            ;
-
-        if (i == _n)
-            break;
-        else
-            for (j = i + 1; _ptn[j] > level; j++)
-                ;
+        i = _cell_starts[cell_index];
+        j = cell_index + 1 < _cell_starts.size() ? _cell_starts[cell_index + 1] - 1 : _n - 1;
+        if (i == j)
+            continue;
 
         int degree = _degree[_mapping[_lab[i]]];
 
-        // Choose cell with single vertices first and then biggest cell
-        if (ibest == -1 || (degree == 0 && bestdegree != 0) || (bestdegree != 0 && j - i > jbest - ibest))
+        // Prefer zero-degree cells, then the smallest non-singleton cell.
+        int cell_size = j - i;
+        int best_size = jbest - ibest;
+        bool prefer = ibest == -1 || (degree == 0 && bestdegree != 0) ||
+                      ((degree == 0) == (bestdegree == 0) && (ibest == -1 || cell_size < best_size));
+        if (prefer)
         {
             jbest = j;
             ibest = i;
             bestdegree = degree;
         }
-
-        i = j + 1;
     }
+
 
     if (ibest == -1)
         throw Error("(intenal error) target cell cannot be found");
@@ -1132,19 +1344,22 @@ int AutomorphismSearch::_targetcell(int level, Array<int>& cell)
         if (cell.size() > 0 && cell[cell.size() - 1] < cell[imin])
             imin = cell.size() - 1;
     }
-
     if (imin > 0)
         cell.swap(0, imin);
 
+    search_profile.target_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(ProfileClock::now() - profile_start).count();
     return i;
 }
 
 void AutomorphismSearch::_refine(int level, int& numcells)
 {
+    auto profile_start = ProfileClock::now();
+    search_profile.refine_calls++;
     if (refine_by_sorted_neighbourhood)
         _refineBySortingNeighbourhood(level, numcells);
     else
         _refineOriginal(level, numcells);
+    search_profile.refine_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(ProfileClock::now() - profile_start).count();
 }
 
 void AutomorphismSearch::_refineOriginal(int level, int& numcells)
@@ -1236,68 +1451,110 @@ void AutomorphismSearch::_refineBySortingNeighbourhood(int level, int& numcells)
     }
 }
 
-bool AutomorphismSearch::_hasEdgeWithRank(int from, int to, int target_edge_rank)
-{
-    int edge_index = _graph.findEdgeIndex(from, to);
-
-    if (edge_index == -1)
-        return false;
-
-    if (cb_edge_rank == 0)
-        return true;
-
-    int mapped_v1 = _mapping[from];
-    int mapped_v2 = _mapping[to];
-    int edge_index_mapped = _given_graph->findEdgeIndex(mapped_v1, mapped_v2);
-    if (edge_index_mapped == -1)
-        throw Error("Internal error: edge must exists");
-
-    int edge_rank = cb_edge_rank(*_given_graph, edge_index_mapped, context);
-
-    if (target_edge_rank == -1)
-    {
-        // Just update information about ranks
-        while (_edge_ranks_in_refine.size() <= edge_rank)
-            _edge_ranks_in_refine.push(0);
-
-        _edge_ranks_in_refine[edge_rank]++;
-        return true;
-    }
-
-    return target_edge_rank == edge_rank;
-}
 
 void AutomorphismSearch::_refineByCell(int split1, int split2, int level, int& numcells, int& hint, int target_edge_rank)
 {
     int i, j;
+    Array<int>& edge_counts = _edge_counts;
+    _edge_count_touched.clear();
+    for (j = split1; j <= split2; j++)
+    {
+        int splitter_vertex = _lab[j];
+        const Vertex& splitter = _graph.getVertex(splitter_vertex);
+        for (int nei = splitter.neiBegin(); nei != splitter.neiEnd(); nei = splitter.neiNext(nei))
+        {
+            int neighbor = splitter.neiVertex(nei);
+            if (cb_edge_rank != 0)
+            {
+                int edge_rank = _edge_rank_cache[splitter.neiEdge(nei)];
+                if (target_edge_rank == -1)
+                {
+                    while (_edge_ranks_in_refine.size() <= edge_rank)
+                        _edge_ranks_in_refine.push(0);
+                    _edge_ranks_in_refine[edge_rank]++;
+                }
+                else if (target_edge_rank != edge_rank)
+                    continue;
+            }
+            if (edge_counts[neighbor]++ == 0)
+                _edge_count_touched.push(neighbor);
+        }
+    }
 
     if (split1 == split2) // trivial splitting cell
     {
         int cell1, cell2;
+        QS_DEF(Array<int>, affected_cell_starts);
+        affected_cell_starts.clear();
 
-        for (cell1 = 0; cell1 < _n; cell1 = cell2 + 1)
+        for (int touched = 0; touched < _edge_count_touched.size(); touched++)
         {
+            int position = _lab_position[_edge_count_touched[touched]];
+            int low = 0, high = _cell_starts.size();
+            while (low < high)
+            {
+                int middle = low + (high - low) / 2;
+                if (_cell_starts[middle] <= position)
+                    low = middle + 1;
+                else
+                    high = middle;
+            }
+            int start = _cell_starts[low - 1];
+            if (_ptn[start] <= level)
+                continue;
+            bool already_added = false;
+            for (int i = 0; i < affected_cell_starts.size(); i++)
+                if (affected_cell_starts[i] == start)
+                {
+                    already_added = true;
+                    break;
+                }
+            if (!already_added)
+                affected_cell_starts.push(start);
+        }
+
+        for (int i = 1; i < affected_cell_starts.size(); i++)
+        {
+            int start = affected_cell_starts[i];
+            int j = i;
+            while (j > 0 && affected_cell_starts[j - 1] > start)
+            {
+                affected_cell_starts[j] = affected_cell_starts[j - 1];
+                j--;
+            }
+            affected_cell_starts[j] = start;
+        }
+
+        for (int affected = 0; affected < affected_cell_starts.size(); affected++)
+        {
+            cell1 = affected_cell_starts[affected];
             for (cell2 = cell1; _ptn[cell2] > level; cell2++)
                 ;
-            if (cell1 == cell2)
-                continue;
 
             int c1 = cell1, c2 = cell2;
-
             while (c1 <= c2)
             {
-                if (_hasEdgeWithRank(_lab[split1], _lab[c1], target_edge_rank))
+                if (edge_counts[_lab[c1]] != 0)
                     c1++;
                 else
                 {
                     std::swap(_lab[c1], _lab[c2]);
+                    _lab_position[_lab[c1]] = c1;
+                    _lab_position[_lab[c2]] = c2;
                     c2--;
                 }
             }
 
             if (c2 >= cell1 && c1 <= cell2)
             {
-                _ptn[c2] = level;
+                if (_ptn[c2] > level)
+                {
+                    _ptn[c2] = level;
+                    _ptn_change_stack.push(c2);
+                    _insertCellStart(c2 + 1);
+                }
+                if (c1 <= cell2)
+                    _insertCellStart(c1);
                 numcells++;
 
                 if (_active[cell1] || (c2 - cell1 >= cell2 - c1 && !refine_by_sorted_neighbourhood))
@@ -1332,12 +1589,7 @@ void AutomorphismSearch::_refineByCell(int split1, int split2, int level, int& n
 
             for (i = cell1; i <= cell2; i++)
             {
-                int cnt = 0;
-
-                for (j = split1; j <= split2; j++)
-                    if (_hasEdgeWithRank(_lab[i], _lab[j], target_edge_rank))
-                        cnt++;
-
+                int cnt = edge_counts[_lab[i]];
                 while (_bucket.size() <= cnt)
                     _bucket.push(0);
 
@@ -1354,7 +1606,6 @@ void AutomorphismSearch::_refineByCell(int split1, int split2, int level, int& n
 
             if (refine_reverse_degree)
             {
-                // Reverse degree locally to avoid code changing below
                 for (i = cell1; i <= cell2; i++)
                 {
                     _count[i] = _bucket.size() - _count[i] - 1;
@@ -1378,7 +1629,8 @@ void AutomorphismSearch::_refineByCell(int split1, int split2, int level, int& n
                 if (_bucket[i] == 0)
                     continue;
 
-                c2 = c1 + _bucket[i];
+                int subcell_size = _bucket[i];
+                c2 = c1 + subcell_size;
                 _bucket[i] = c1;
                 last_c1 = c1;
 
@@ -1395,8 +1647,12 @@ void AutomorphismSearch::_refineByCell(int split1, int split2, int level, int& n
                         hint = c1;
                     numcells++;
                 }
-                if (c2 <= cell2)
+                if (c2 <= cell2 && _ptn[c2 - 1] > level)
+                {
                     _ptn[c2 - 1] = level;
+                    _ptn_change_stack.push(c2 - 1);
+                    _insertCellStart(c2);
+                }
 
                 c1 = c2;
             }
@@ -1405,7 +1661,10 @@ void AutomorphismSearch::_refineByCell(int split1, int split2, int level, int& n
                 _workperm2[_bucket[_count[i]]++] = _lab[i];
 
             for (i = cell1; i <= cell2; i++)
+            {
                 _lab[i] = _workperm2[i];
+                _lab_position[_lab[i]] = i;
+            }
 
             if (_active[cell1] == 0)
             {
@@ -1420,6 +1679,8 @@ void AutomorphismSearch::_refineByCell(int split1, int split2, int level, int& n
             }
         }
     }
+    for (i = 0; i < _edge_count_touched.size(); i++)
+        edge_counts[_edge_count_touched[i]] = 0;
 }
 
 void AutomorphismSearch::_handleAutomorphism(const Array<int>& perm)

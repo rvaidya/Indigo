@@ -1164,9 +1164,7 @@ bool MoleculeStereocenters::checkSub(BaseMolecule& query, BaseMolecule& target, 
             }
 
             if (!isPyramidMappingRigid(pyramid_mapping))
-            {
                 return false;
-            }
         }
         else if (type == ATOM_OR || type == ATOM_AND)
         {
@@ -1184,63 +1182,43 @@ bool MoleculeStereocenters::checkSub(BaseMolecule& query, BaseMolecule& target, 
                 const _Atom* ct2 = target.stereocenters._stereocenters.at2(mapping[iq2]);
 
                 if (ct2 == 0)
-                {
                     return false;
-                }
 
                 if (ct2->type < type)
-                {
                     return false;
-                }
 
                 flags[j] = 1;
 
                 if (ct2->type == ATOM_AND)
                 {
                     if (stereo_group_or != -1)
-                    {
                         return false;
-                    }
                     if (have_abs)
-                    {
                         return false;
-                    }
 
                     if (stereo_group_and == -1)
                         stereo_group_and = ct2->group;
                     else if (stereo_group_and != ct2->group)
-                    {
                         return false;
-                    }
                 }
                 else if (ct2->type == ATOM_OR)
                 {
                     if (stereo_group_and != -1)
-                    {
                         return false;
-                    }
                     if (have_abs)
-                    {
                         return false;
-                    }
 
                     if (stereo_group_or == -1)
                         stereo_group_or = ct2->group;
                     else if (stereo_group_or != ct2->group)
-                    {
                         return false;
-                    }
                 }
                 else if (ct2->type == ATOM_ABS)
                 {
                     if (stereo_group_and != -1)
-                    {
                         return false;
-                    }
                     if (stereo_group_or != -1)
-                    {
                         return false;
-                    }
 
                     have_abs = true;
                 }
@@ -1251,9 +1229,7 @@ bool MoleculeStereocenters::checkSub(BaseMolecule& query, BaseMolecule& target, 
                 if (revert == -1)
                     revert = not_equal;
                 else if (revert != not_equal)
-                {
                     return false;
-                }
             }
         }
     }

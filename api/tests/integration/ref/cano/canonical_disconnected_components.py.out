@@ -1,0 +1,4 @@
+canonical disconnected components: PASS
+roundtrip: PASS
+component permutation: PASS
+stereo preserved: PASS

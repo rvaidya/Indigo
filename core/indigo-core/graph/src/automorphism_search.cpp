@@ -199,6 +199,9 @@ bool AutomorphismSearch::_componentVertexMatch(Graph& subgraph, Graph& supergrap
 
     int graph_sub = match.sub_to_graph->at(sub_idx);
     int graph_super = match.super_to_graph->at(super_idx);
+    if (graph_sub < 0 || graph_super < 0 || !self._graph.hasVertex(graph_sub) || !self._graph.hasVertex(graph_super))
+        throw Error("internal: incomplete disconnected component vertex mapping");
+
     int original_sub = self._mapping[graph_sub];
     int original_super = self._mapping[graph_super];
 
@@ -227,6 +230,9 @@ bool AutomorphismSearch::_componentEdgeMatch(Graph& subgraph, Graph& supergraph,
     int graph_sub_end = match.sub_to_graph->at(sub_edge.end);
     int graph_super_beg = match.super_to_graph->at(super_edge.beg);
     int graph_super_end = match.super_to_graph->at(super_edge.end);
+
+    if (graph_sub_beg < 0 || graph_sub_end < 0 || graph_super_beg < 0 || graph_super_end < 0)
+        throw Error("internal: incomplete disconnected component edge mapping");
 
     int original_sub = self._given_graph->findEdgeIndex(self._mapping[graph_sub_beg], self._mapping[graph_sub_end]);
     int original_super = self._given_graph->findEdgeIndex(self._mapping[graph_super_beg], self._mapping[graph_super_end]);
@@ -268,17 +274,32 @@ bool AutomorphismSearch::_trySeedComponentSwap(const GraphDecomposer& decomposer
     QS_DEF(Array<int>, component2_to_graph);
     component1_to_graph.clear_resize(component1_graph.vertexEnd());
     component2_to_graph.clear_resize(component2_graph.vertexEnd());
+    component1_to_graph.fffill();
+    component2_to_graph.fffill();
 
     for (int i = 0; i < component1_vertices.size(); i++)
     {
         int graph_vertex = component1_vertices[i];
-        component1_to_graph[graph_to_component1[graph_vertex]] = graph_vertex;
+        int component_vertex = graph_to_component1[graph_vertex];
+        if (component_vertex < 0 || !component1_graph.hasVertex(component_vertex) || component1_to_graph[component_vertex] != -1)
+            throw Error("internal: invalid disconnected component subgraph mapping");
+        component1_to_graph[component_vertex] = graph_vertex;
     }
     for (int i = 0; i < component2_vertices.size(); i++)
     {
         int graph_vertex = component2_vertices[i];
-        component2_to_graph[graph_to_component2[graph_vertex]] = graph_vertex;
+        int component_vertex = graph_to_component2[graph_vertex];
+        if (component_vertex < 0 || !component2_graph.hasVertex(component_vertex) || component2_to_graph[component_vertex] != -1)
+            throw Error("internal: invalid disconnected component supergraph mapping");
+        component2_to_graph[component_vertex] = graph_vertex;
     }
+
+    for (int i = component1_graph.vertexBegin(); i != component1_graph.vertexEnd(); i = component1_graph.vertexNext(i))
+        if (component1_to_graph[i] < 0)
+            throw Error("internal: incomplete disconnected component subgraph mapping");
+    for (int i = component2_graph.vertexBegin(); i != component2_graph.vertexEnd(); i = component2_graph.vertexNext(i))
+        if (component2_to_graph[i] < 0)
+            throw Error("internal: incomplete disconnected component supergraph mapping");
 
     ComponentMatchContext match = {this, &component1_to_graph, &component2_to_graph};
     EmbeddingEnumerator enumerator(component2_graph);
@@ -310,6 +331,9 @@ bool AutomorphismSearch::_trySeedComponentSwap(const GraphDecomposer& decomposer
 
             int graph_vertex1 = component1_to_graph[i];
             int graph_vertex2 = component2_to_graph[mapped];
+            if (graph_vertex1 < 0 || graph_vertex2 < 0)
+                throw Error("internal: incomplete disconnected component automorphism mapping");
+
             permutation[graph_vertex1] = graph_vertex2;
             permutation[graph_vertex2] = graph_vertex1;
         }

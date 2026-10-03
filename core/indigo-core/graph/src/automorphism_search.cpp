@@ -18,12 +18,25 @@
 
 #include "graph/automorphism_search.h"
 
+#include "graph/embedding_enumerator.h"
+#include "graph/graph_decomposer.h"
+
 using namespace indigo;
 
 IMPL_ERROR(AutomorphismSearch, "automorphism search");
 IMPL_TIMEOUT_EXCEPTION(AutomorphismSearch, "automorphism search");
 
 CP_DEF(AutomorphismSearch);
+
+namespace
+{
+    struct ComponentMatchContext
+    {
+        AutomorphismSearch* search;
+        const Array<int>* sub_to_graph;
+        const Array<int>* super_to_graph;
+    };
+}
 
 AutomorphismSearch::AutomorphismSearch()
     : CP_INIT, TL_CP_GET(_call_stack), TL_CP_GET(_lab), TL_CP_GET(_ptn), TL_CP_GET(_graph), TL_CP_GET(_mapping), TL_CP_GET(_inv_mapping), TL_CP_GET(_degree),
@@ -176,6 +189,182 @@ void AutomorphismSearch::_prepareGraph(Graph& graph)
         _lab[buckets[ranks[i]]++] = i;
 }
 
+bool AutomorphismSearch::_componentVertexMatch(Graph& subgraph, Graph& supergraph, const int* /*core_sub*/, int sub_idx, int super_idx, void* userdata)
+{
+    ComponentMatchContext& match = *(ComponentMatchContext*)userdata;
+    AutomorphismSearch& self = *match.search;
+
+    if (subgraph.getVertex(sub_idx).degree() != supergraph.getVertex(super_idx).degree())
+        return false;
+
+    int graph_sub = match.sub_to_graph->at(sub_idx);
+    int graph_super = match.super_to_graph->at(super_idx);
+    int original_sub = self._mapping[graph_sub];
+    int original_super = self._mapping[graph_super];
+
+    if (self.cb_vertex_cmp != 0 && self.cb_vertex_cmp(*self._given_graph, original_sub, original_super, self.context) != 0)
+        return false;
+
+    if (self.cb_vertex_rank != 0 &&
+        self.cb_vertex_rank(*self._given_graph, original_sub, self.context) != self.cb_vertex_rank(*self._given_graph, original_super, self.context))
+        return false;
+
+    return true;
+}
+
+bool AutomorphismSearch::_componentEdgeMatch(Graph& subgraph, Graph& supergraph, int sub_idx, int super_idx, void* userdata)
+{
+    ComponentMatchContext& match = *(ComponentMatchContext*)userdata;
+    AutomorphismSearch& self = *match.search;
+
+    if (self.cb_edge_rank == 0)
+        return true;
+
+    const Edge& sub_edge = subgraph.getEdge(sub_idx);
+    const Edge& super_edge = supergraph.getEdge(super_idx);
+
+    int graph_sub_beg = match.sub_to_graph->at(sub_edge.beg);
+    int graph_sub_end = match.sub_to_graph->at(sub_edge.end);
+    int graph_super_beg = match.super_to_graph->at(super_edge.beg);
+    int graph_super_end = match.super_to_graph->at(super_edge.end);
+
+    int original_sub = self._given_graph->findEdgeIndex(self._mapping[graph_sub_beg], self._mapping[graph_sub_end]);
+    int original_super = self._given_graph->findEdgeIndex(self._mapping[graph_super_beg], self._mapping[graph_super_end]);
+
+    if (original_sub < 0 || original_super < 0)
+        return false;
+
+    return self.cb_edge_rank(*self._given_graph, original_sub, self.context) == self.cb_edge_rank(*self._given_graph, original_super, self.context);
+}
+
+bool AutomorphismSearch::_trySeedComponentSwap(const GraphDecomposer& decomposer, int component1, int component2)
+{
+    if (decomposer.getComponentVerticesCount(component1) != decomposer.getComponentVerticesCount(component2) ||
+        decomposer.getComponentEdgesCount(component1) != decomposer.getComponentEdgesCount(component2))
+        return false;
+
+    QS_DEF(Array<int>, component1_vertices);
+    QS_DEF(Array<int>, component2_vertices);
+    component1_vertices.clear();
+    component2_vertices.clear();
+
+    for (int i = _graph.vertexBegin(); i != _graph.vertexEnd(); i = _graph.vertexNext(i))
+    {
+        int component = decomposer.getComponent(i);
+        if (component == component1)
+            component1_vertices.push(i);
+        else if (component == component2)
+            component2_vertices.push(i);
+    }
+
+    Graph component1_graph;
+    Graph component2_graph;
+    QS_DEF(Array<int>, graph_to_component1);
+    QS_DEF(Array<int>, graph_to_component2);
+    component1_graph.makeSubgraph(_graph, component1_vertices, &graph_to_component1);
+    component2_graph.makeSubgraph(_graph, component2_vertices, &graph_to_component2);
+
+    QS_DEF(Array<int>, component1_to_graph);
+    QS_DEF(Array<int>, component2_to_graph);
+    component1_to_graph.clear_resize(component1_graph.vertexEnd());
+    component2_to_graph.clear_resize(component2_graph.vertexEnd());
+
+    for (int i = 0; i < component1_vertices.size(); i++)
+    {
+        int graph_vertex = component1_vertices[i];
+        component1_to_graph[graph_to_component1[graph_vertex]] = graph_vertex;
+    }
+    for (int i = 0; i < component2_vertices.size(); i++)
+    {
+        int graph_vertex = component2_vertices[i];
+        component2_to_graph[graph_to_component2[graph_vertex]] = graph_vertex;
+    }
+
+    ComponentMatchContext match = {this, &component1_to_graph, &component2_to_graph};
+    EmbeddingEnumerator enumerator(component2_graph);
+    enumerator.setSubgraph(component1_graph);
+    enumerator.userdata = &match;
+    enumerator.cb_match_vertex = _componentVertexMatch;
+    enumerator.cb_match_edge = _componentEdgeMatch;
+
+    QS_DEF(Array<int>, permutation);
+    permutation.clear_resize(_n);
+
+    enumerator.processStart();
+    while (enumerator.processNext())
+    {
+        for (int i = 0; i < _n; i++)
+            permutation[i] = i;
+
+        const int* mapping = enumerator.getSubgraphMapping();
+        bool valid_mapping = true;
+
+        for (int i = component1_graph.vertexBegin(); i != component1_graph.vertexEnd(); i = component1_graph.vertexNext(i))
+        {
+            int mapped = mapping[i];
+            if (mapped < 0 || !component2_graph.hasVertex(mapped))
+            {
+                valid_mapping = false;
+                break;
+            }
+
+            int graph_vertex1 = component1_to_graph[i];
+            int graph_vertex2 = component2_to_graph[mapped];
+            permutation[graph_vertex1] = graph_vertex2;
+            permutation[graph_vertex2] = graph_vertex1;
+        }
+
+        if (!valid_mapping || !_isAutomorphism(permutation))
+            continue;
+
+        if (_fix.size() == worksize)
+        {
+            _fix.pop();
+            _mcr.pop();
+        }
+        _buildFixMcr(permutation, _fix.push(), _mcr.push());
+        _joinOrbits(permutation);
+        _handleAutomorphism(permutation);
+        return true;
+    }
+
+    return false;
+}
+
+void AutomorphismSearch::_seedDisconnectedComponentAutomorphisms()
+{
+    GraphDecomposer decomposer(_graph);
+    int components_count = decomposer.decompose();
+    if (components_count < 2)
+        return;
+
+    QS_DEF(Array<int>, representatives);
+    representatives.clear();
+
+    for (int component = 0; component < components_count; component++)
+    {
+        bool matched = false;
+
+        for (int i = 0; i < representatives.size(); i++)
+        {
+            int representative = representatives[i];
+
+            if (decomposer.getComponentVerticesCount(representative) != decomposer.getComponentVerticesCount(component) ||
+                decomposer.getComponentEdgesCount(representative) != decomposer.getComponentEdgesCount(component))
+                continue;
+
+            if (_trySeedComponentSwap(decomposer, representative, component))
+            {
+                matched = true;
+                break;
+            }
+        }
+
+        if (!matched)
+            representatives.push(component);
+    }
+}
+
 int AutomorphismSearch::_cmp_vertices(int idx1, int idx2, void* context)
 {
     const AutomorphismSearch* self = (const AutomorphismSearch*)context;
@@ -286,6 +475,9 @@ void AutomorphismSearch::process(Graph& graph)
 
         for (i = 0; i < _n; ++i)
             _orbits[i] = i;
+
+        if (getcanon)
+            _seedDisconnectedComponentAutomorphisms();
 
         _Call& call = _call_stack.push();
         call.level = 1;

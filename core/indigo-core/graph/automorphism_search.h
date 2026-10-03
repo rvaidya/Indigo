@@ -27,6 +27,8 @@
 namespace indigo
 {
 
+    class GraphDecomposer;
+
     class AutomorphismSearch
     {
     public:
@@ -144,6 +146,11 @@ namespace indigo
         int _orbits_num;
 
         void _prepareGraph(Graph& graph);
+        void _seedDisconnectedComponentAutomorphisms();
+        bool _trySeedComponentSwap(const GraphDecomposer& decomposer, int component1, int component2);
+
+        static bool _componentVertexMatch(Graph& subgraph, Graph& supergraph, const int* core_sub, int sub_idx, int super_idx, void* userdata);
+        static bool _componentEdgeMatch(Graph& subgraph, Graph& supergraph, int sub_idx, int super_idx, void* userdata);
 
         int _firstNode(int level, int numcells);
         int _otherNode(int level, int numcells);

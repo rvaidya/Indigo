@@ -7,6 +7,7 @@ Released 2026-07-10
 ## Bugfixes and improvements
 * Index stored automorphism generators by moved vertices to reduce long-prune overhead.
 * Cache canonical-side neighborhoods and mapped bond encodings across repeated canonical comparisons.
+* Cache prepared graph edge lookups during canonical automorphism refinement.
 * #3599 - Bond length become wrong after Arrange as a Ring option applied
 * #3648 - Integration tests may fails in MT mode
 * #3283 - SVG export fails, with S-Groups

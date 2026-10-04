@@ -138,6 +138,7 @@ namespace indigo
         TL_CP_DECL(Array<int>, _fixedpts);
         TL_CP_DECL(Array<int[2]>, _work_active_cells);
         TL_CP_DECL(Array<int>, _edge_ranks_in_refine);
+        TL_CP_DECL(Array<int>, _prepared_edge_lookup);
 
         TL_CP_DECL(Array<int>, _fixed_generator_count);
         TL_CP_DECL(Array<int>, _generator_seen_epoch);

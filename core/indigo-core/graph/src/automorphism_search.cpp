@@ -32,6 +32,8 @@ namespace
         const indigo::Array<int>* sub_to_graph;
         const indigo::Array<int>* super_to_graph;
     };
+    // Bound the dense lookup; larger graphs keep using Graph::findEdgeIndex().
+    constexpr int MAX_PREPARED_EDGE_LOOKUP_VERTICES = 512;
 }
 
 IMPL_ERROR(AutomorphismSearch, "automorphism search");
@@ -44,7 +46,8 @@ AutomorphismSearch::AutomorphismSearch()
       TL_CP_GET(_tcells), TL_CP_GET(_fix), TL_CP_GET(_mcr), TL_CP_GET(_seeded_component_automorphisms), TL_CP_GET(_moved_vertices),
       TL_CP_GET(_generators_by_vertex), TL_CP_GET(_active), TL_CP_GET(_workperm), TL_CP_GET(_workperm2), TL_CP_GET(_bucket),
       TL_CP_GET(_count), TL_CP_GET(_firstlab), TL_CP_GET(_canonlab), TL_CP_GET(_orbits), TL_CP_GET(_fixedpts), TL_CP_GET(_work_active_cells),
-      TL_CP_GET(_edge_ranks_in_refine), TL_CP_GET(_fixed_generator_count), TL_CP_GET(_generator_seen_epoch), TL_CP_GET(_long_prune_candidates)
+      TL_CP_GET(_edge_ranks_in_refine), TL_CP_GET(_prepared_edge_lookup), TL_CP_GET(_fixed_generator_count),
+      TL_CP_GET(_generator_seen_epoch), TL_CP_GET(_long_prune_candidates)
 {
     getcanon = true;
     compare_vertex_degree_first = true;
@@ -545,6 +548,18 @@ void AutomorphismSearch::getCanonicallyOrderedOrbits(Array<int>& orbits) const
 void AutomorphismSearch::process(Graph& graph)
 {
     _prepareGraph(graph);
+    _prepared_edge_lookup.clear();
+    if (_n > 0 && _n <= MAX_PREPARED_EDGE_LOOKUP_VERTICES)
+    {
+        _prepared_edge_lookup.clear_resize(_n * _n);
+        _prepared_edge_lookup.fffill();
+        for (int edge_idx = _graph.edgeBegin(); edge_idx != _graph.edgeEnd(); edge_idx = _graph.edgeNext(edge_idx))
+        {
+            const Edge& edge = _graph.getEdge(edge_idx);
+            _prepared_edge_lookup[edge.beg * _n + edge.end] = edge_idx;
+            _prepared_edge_lookup[edge.end * _n + edge.beg] = edge_idx;
+        }
+    }
     _active.clear_resize(_n);
     _workperm.clear_resize(_n);
     _workperm2.clear_resize(_n);
@@ -1277,7 +1292,11 @@ void AutomorphismSearch::_refineBySortingNeighbourhood(int level, int& numcells)
 
 bool AutomorphismSearch::_hasEdgeWithRank(int from, int to, int target_edge_rank)
 {
-    int edge_index = _graph.findEdgeIndex(from, to);
+    int edge_index;
+    if (_prepared_edge_lookup.size() != 0)
+        edge_index = _prepared_edge_lookup[from * _n + to];
+    else
+        edge_index = _graph.findEdgeIndex(from, to);
 
     if (edge_index == -1)
         return false;
